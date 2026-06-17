@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import RustBridge
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -16,7 +17,8 @@ import Glibc
 public class Muxer {
     public static var started = false
     public static var usbmuxdReady = false
-    
+    public static var isrppairing = false
+
     private static let DEVICE_ATTACH = "Attached"
     private static let DEVICE_DETACH = "Detached"
 
@@ -51,14 +53,19 @@ public class Muxer {
 
         print("[minimuxer] DEBUG: loaded pairing file keys: \(pairingDict.keys)")
 
-        guard let _ = pairingDict["UDID"] as? String else {
+        if let _ = pairingDict["private_key"] as? Data {
+            print("[minimuxer] INFO: RPPairing file detected")
+            isrppairing = true
+        } else if let _ = pairingDict["UDID"] as? String {
+            print("[minimuxer] INFO: Lockdown pairing file detected")
+        } else {
             print("[minimuxer] ERROR: Pairing file missing UDID")
             throw MinimuxerError.PairingFile
         }
 
         var cleanPairingDict = pairingDict
         cleanPairingDict.removeValue(forKey: "UDID")
-        
+
         guard let pairingXml = try? PropertyListSerialization.data(fromPropertyList: cleanPairingDict, format: .xml, options: 0) else {
             print("[minimuxer] ERROR: Failed to serialize clean pairing file")
             throw MinimuxerError.PairingFile
@@ -69,9 +76,13 @@ public class Muxer {
 
         started = true
 
-        Thread.detachNewThread { listenLoop() }
-        // Heartbeat is started/stopped by NetworkObserver when VPN peer changes
-        // Heartbeat.startBeat()
+        if isrppairing {
+            try RustIdevice.setRpPairingFile(pairingFile)
+        } else {
+            Task.detached(priority: .userInitiated) { listenLoop() }
+            // Heartbeat is started/stopped by NetworkObserver when VPN peer changes
+            // Heartbeat.startBeat()
+        }
         print("[minimuxer] minimuxer has started!")
     }
 
@@ -295,6 +306,7 @@ public class Muxer {
         var data = [UInt8](repeating: 0, count: 152)
         var addr = in_addr()
         if inet_pton(AF_INET, ip, &addr) == 1 {
+//             data[0] = 10; data[1] = 0x02
             data[0] = 16; data[1] = 0x02
             let ipBytes = withUnsafeBytes(of: &addr.s_addr) { Array($0) }
             for (i, byte) in ipBytes.enumerated() { data[4 + i] = byte }

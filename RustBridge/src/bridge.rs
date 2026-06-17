@@ -82,11 +82,11 @@ pub extern "C" fn rust_bridge_lockdown_get_value(client: *mut LockdownWrapper, d
     let domain = unsafe { if domain.is_null() { "" } else { CStr::from_ptr(domain).to_str().unwrap() } };
     let key = unsafe { CStr::from_ptr(key).to_str().unwrap() };
     match c.0.get_value(key, domain) {
-         Ok(p) => match p.get_string_val() {
-             Ok(s) => to_char(s),
-             Err(_) => to_char(p.to_string()),
-         },
-         Err(_) => std::ptr::null_mut(),
+        Ok(p) => match p.get_string_val() {
+            Ok(s) => to_char(s),
+            Err(_) => to_char(p.to_string()),
+        },
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

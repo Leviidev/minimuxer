@@ -10,7 +10,38 @@ import Foundation
 import RustBridge
 import ZIPFoundation
 
+
+public protocol MounterProvider {
+    var dmgMounted:Bool { get }
+    func startAutoMounter(docsPath: String);
+}
+
 public class Mounter {
+    public static var provider: MounterProvider?;
+
+    private static func getProvider() -> any MounterProvider {
+        if let provider {
+            return provider
+        } else {
+            if Muxer.isrppairing {
+                provider = RPMounter()
+            } else {
+                provider = LockDownMounter()
+            }
+        }
+        return provider!
+    }
+    public static func startAutoMounter(docsPath: String) {
+        getProvider().startAutoMounter(docsPath: docsPath)
+    }
+    public static var dmgMounted:Bool {
+        get {
+            return getProvider().dmgMounted
+        }
+    }
+}
+
+public class LockDownMounter: MounterProvider {
     public static var dmgMounted = false
     private static var threadAlive = false
     private static let lock = NSLock()
@@ -36,7 +67,7 @@ public class Mounter {
                 print("[minimuxer] mount-thread: stopped")
             }
             print("[minimuxer] mount-thread: started")
-            
+
             while !Muxer.usbmuxdReady {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 let ts = ISO8601DateFormatter().string(from: Date())
@@ -71,13 +102,9 @@ public class Mounter {
 
                     let major = Int(versionStr.split(separator: ".").first ?? "0") ?? 0
                     if major < 17 {
-                        try await handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
+                        try await self.handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
                     } else {
-                        try await handlePost17Mount(dmgDocsPath: dmgDocsPath)
-                    }
-                } catch let error as MinimuxerError {
-                    if error == .NoDevice {
-                        continue
+                        try await self.handlePost17Mount(dmgDocsPath: dmgDocsPath)
                     }
                     print("[minimuxer] mount-thread: ERROR: Mount failed with .NoDevice error: \(error)")
                     await Minimuxer.checkAndNotify(.failed(.mounter, error))
@@ -91,7 +118,7 @@ public class Mounter {
         }
     }
 
-    private static func handlePre17Mount(device: Device, iosVersion: String, dmgDocsPath: String) async throws {
+    private func handlePre17Mount(device: Device, iosVersion: String, dmgDocsPath: String) async throws {
         print("[minimuxer] Starting image mounter (pre-17)")
         guard let mounter = RustMounter.connect(device: device.internalInstance, label: "sidestore-image-reeeee") else {
             print("[minimuxer] ERROR: Unable to start mobile image mounter")
@@ -116,7 +143,8 @@ public class Mounter {
         
         if !FileManager.default.fileExists(atPath: dmgPath) {
             print("[minimuxer] Downloading iOS \(iosVersion) DMG...")
-            try downloadPre17Image(iosVersion: iosVersion, dmgDocsPath: dmgDocsPath)
+//             try downloadPre17Image(iosVersion: iosVersion, dmgDocsPath: dmgDocsPath)
+            try LockDownMounter.downloadPre17Image(iosVersion: iosVersion, dmgDocsPath: dmgDocsPath)
         }
 
         let dmgSize = (try? Data(contentsOf: URL(fileURLWithPath: dmgPath)).count) ?? -1
@@ -139,7 +167,41 @@ public class Mounter {
          await Minimuxer.checkAndNotify(.ready(.mounter))
     }
 
-    private static func handlePost17Mount(dmgDocsPath: String) async throws {
+    private func handlePost17Mount(dmgDocsPath: String) throws {
+        let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
+
+         print(
+             "[minimuxer] Mounting DDI " +
+             "(image=\(imageData.count) bytes, " +
+             "trustcache=\(trustcacheData.count) bytes, " +
+             "manifest=\(manifestData.count) bytes)"
+         )
+
+        let result = rustBridgeMountPersonalizedDDI(
+            image: imageData,
+            trustcache: trustcacheData,
+            manifest: manifestData,
+            muxerAddr: MuxerConstants.usbmuxdSocket,
+            deviceIp: try DeviceEndpoint.shared.ip()
+        )
+        if result == 0 {
+            print("[minimuxer] DDI mounted successfully")
+            dmgMounted = true
+            await Minimuxer.checkAndNotify(.ready(.mounter))
+        } else {
+            print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
+            switch result {
+                case 1: throw MinimuxerError.NoConnection
+                case 4: throw MinimuxerError.CreateLockdown
+                case 5: throw MinimuxerError.GetLockdownValue
+                case 6: throw MinimuxerError.ImageLookup
+                case 8: throw MinimuxerError.Mount
+            default: throw MinimuxerError.Mount
+            }
+        }
+    }
+
+    static func loadPost17Image(dmgDocsPath: String) throws -> (Data, Data, Data){
         let dir = URL(fileURLWithPath: dmgDocsPath)
         let tasks: [(String, URL)] = [
             (MuxerConstants.ddiImageURL, dir.appendingPathComponent("Image.dmg")),
@@ -171,35 +233,8 @@ public class Mounter {
          let trustcacheData = try Data(contentsOf: trustcacheURL)
          let manifestData = try Data(contentsOf: manifestURL)
 
-         print(
-             "[minimuxer] Mounting DDI " +
-             "(image=\(imageData.count) bytes, " +
-             "trustcache=\(trustcacheData.count) bytes, " +
-             "manifest=\(manifestData.count) bytes)"
-         )
 
-        let result = rustBridgeMountPersonalizedDDI(
-            image: imageData,
-            trustcache: trustcacheData,
-            manifest: manifestData,
-            muxerAddr: MuxerConstants.usbmuxdSocket,
-            deviceIp: try DeviceEndpoint.shared.ip()
-        )
-         if result == 0 {
-              print("[minimuxer] DDI mounted successfully")
-              dmgMounted = true
-              await Minimuxer.checkAndNotify(.ready(.mounter))
-        } else {
-            print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
-            switch result {
-                case 1: throw MinimuxerError.NoConnection
-                case 4: throw MinimuxerError.CreateLockdown
-                case 5: throw MinimuxerError.GetLockdownValue
-                case 6: throw MinimuxerError.ImageLookup
-                case 8: throw MinimuxerError.Mount
-            default: throw MinimuxerError.Mount
-            }
-        }
+        return (imageData, trustcacheData, manifestData)
     }
 
     private static func downloadPre17Image(iosVersion: String, dmgDocsPath: String) throws {
@@ -238,4 +273,39 @@ public class Mounter {
         }
         try? FileManager.default.removeItem(atPath: tmpPath)
     }
+}
+
+public class RPMounter: MounterProvider {
+    public var dmgMounted: Bool = false
+
+    public func startAutoMounter(docsPath: String) {
+        let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
+        let dmgDocsPath = "\(path)/DMG"
+
+        do {
+            let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
+            Thread.detachNewThread {
+                print("[minimuxer] Starting mount thread...")
+
+                try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
+
+                while !self.dmgMounted {
+                    Thread.sleep(forTimeInterval: 1.0)
+                    do {
+                        let result = RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
+                        if result == 0 {
+                            print("[minimuxer] DDI mounted successfully")
+                            self.dmgMounted = true
+                        } else {
+                            print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("[minimuxer] ERROR: \(error)")
+        }
+
+    }
+
 }
