@@ -18,14 +18,14 @@ public class Mounter {
         let dmgDocsPath = "\(path)/DMG"
 
         print("[minimuxer] mount-thread: Starting mount thread...")
-        Thread.detachNewThread {
+        Task.detached(priority: .userInitiated) {
             defer {
                 print("[minimuxer] mount-thread: stopped")
             }
-            print("[minimuxer] heartbeat-thread: started")
+            print("[minimuxer] mount-thread: started")
             
             while !Muxer.usbmuxdReady {
-                Thread.sleep(forTimeInterval: 1)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 let ts = ISO8601DateFormatter().string(from: Date())
                 print("[\(ts)] [minimuxer] mount-thread: Waiting for usbmuxd to be ready...")
             }
@@ -34,18 +34,20 @@ public class Mounter {
             try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
 
             while !dmgMounted {
-                Thread.sleep(forTimeInterval: 1.0)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 do {
                     let device = try Device.getFirstDevice()
                     let lockdown: RustLockdown
                     switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
-                    case .success(let ld): lockdown = ld
-                    case .error(let err):
-                        if err.contains("InvalidConf") {
-                            print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
-                            print("[minimuxer] mounter-thread: exiting due to invalid pairing")
-                            return
-                       } else {
+                        case .success(let ld): lockdown = ld
+                        case .error(let err):
+                             if err.contains("InvalidConf") {
+                                 print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                                 print("[minimuxer] mounter-thread: exiting due to invalid pairing")
+                                 await Minimuxer.onBackgroundError?(MinimuxerError.PairingFile)
+                                 Minimuxer.reportError(MinimuxerError.PairingFile)
+                                 return
+                         } else {
                             print("[minimuxer] mount-thread: WARN: Could not connect to lockdown for mounter: \(err)")
                         }
                         continue
@@ -77,8 +79,10 @@ public class Mounter {
            let data = lookupResult.data(using: .utf8),
            let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
            let sigArray = plist["ImageSignature"] as? [Any], !sigArray.isEmpty {
-            print("[minimuxer] Developer disk image already mounted")
-            dmgMounted = true; return
+             print("[minimuxer] Developer disk image already mounted")
+             dmgMounted = true
+             Minimuxer.checkAndNotifyReady()
+             return
         }
 
         let dmgPath = "\(dmgDocsPath)/\(iosVersion).dmg"
@@ -107,8 +111,9 @@ public class Mounter {
             print("[minimuxer] ERROR: Unable to mount developer image")
             throw MinimuxerError.Mount
         }
-        print("[minimuxer] Successfully mounted the image")
-        dmgMounted = true
+         print("[minimuxer] Successfully mounted the image")
+         dmgMounted = true
+         Minimuxer.checkAndNotifyReady()
     }
 
     private static func handlePost17Mount(dmgDocsPath: String) throws {
@@ -157,9 +162,10 @@ public class Mounter {
             muxerAddr: MuxerConstants.usbmuxdSocket,
             deviceIp: try DeviceEndpoint.shared.ip()
         )
-        if result == 0 {
-            print("[minimuxer] DDI mounted successfully")
-            dmgMounted = true
+         if result == 0 {
+             print("[minimuxer] DDI mounted successfully")
+             dmgMounted = true
+             Minimuxer.checkAndNotifyReady()
         } else {
             print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
             switch result {

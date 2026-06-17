@@ -139,8 +139,61 @@ public struct Minimuxer {
         try Jit.attachDebugger(pid: pid)
     }
 
+    public static var onBackgroundError: ((Error) async -> Void)?
+    internal static var docsPath: String?
+    
+    private static var continuation: CheckedContinuation<Void, Error>?
+    private static let stateLock = NSLock()
+
     public static func startAutoMounter(docsPath: String) {
+        self.docsPath = docsPath
         Mounter.startAutoMounter(docsPath: docsPath)
+    }
+
+    public static func restart() async throws {
+        print("[minimuxer] Restarting services...")
+        
+        try await withCheckedThrowingContinuation { (co: CheckedContinuation<Void, Error>) in
+            stateLock.lock()
+            
+            // 1. Reset states
+            Mounter.dmgMounted = false
+            Heartbeat.stop()
+            
+            // 2. Set the active continuation
+            self.continuation = co
+            stateLock.unlock()
+
+            // 3. Restart mounter
+            if let docsPath = docsPath {
+                Mounter.startAutoMounter(docsPath: docsPath)
+            }
+
+            // 4. Force NetworkObserver to scan and restart heartbeat
+            NetworkObserver.shared.refreshEndpoint()
+        }
+    }
+
+    public static func checkAndNotifyReady() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        
+        if ready() {
+            if let co = continuation {
+                continuation = nil
+                co.resume()
+            }
+        }
+    }
+
+    public static func reportError(_ error: Error) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        
+        if let co = continuation {
+            continuation = nil
+            co.resume(throwing: error)
+        }
     }
 
     public static func installProvisioningProfile(profile: Data) throws {
