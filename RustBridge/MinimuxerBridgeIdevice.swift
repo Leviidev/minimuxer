@@ -76,12 +76,17 @@ internal func _rust_bridge_idevice_set_rppairing_file(
 	_ pairingFile: UnsafePointer<Int8>?
 ) -> UnsafeMutablePointer<RustIdeviceFfiError>?
 
+internal struct RustMountResult {
+    let value: Int32
+    let error: UnsafeMutablePointer<Int8>?
+}
+
 @_silgen_name("rust_bridge_idevice_mount_personalized_ddi")
 internal func _rust_bridge_idevice_mount_personalized_ddi(
     _ image_ptr: UnsafePointer<UInt8>?, _ image_len: UInt32,
     _ trustcache_ptr: UnsafePointer<UInt8>?, _ trustcache_len: UInt32,
-    _ manifest_ptr: UnsafePointer<UInt8>?, _ manifest_len: UInt32,
-) -> Int32
+    _ manifest_ptr: UnsafePointer<UInt8>?, _ manifest_len: UInt32
+) -> RustMountResult
 
 
 // MARK: - Error Handling
@@ -177,17 +182,24 @@ public class RustIdevice {
 		try rustIdeviceThrowIfNeeded(_rust_bridge_idevice_set_rppairing_file(pairingFile))
 	}
 
-    public static func mountPersonalizedDDI(image: Data, trustcache: Data, manifest: Data) -> Int32 {
-        return image.withUnsafeBytes { imgBuf in
+    public static func mountPersonalizedDDI(image: Data, trustcache: Data, manifest: Data) throws {
+        let result = image.withUnsafeBytes { imgBuf in
             trustcache.withUnsafeBytes { tcBuf in
                 manifest.withUnsafeBytes { manBuf in
                     _rust_bridge_idevice_mount_personalized_ddi(
                         imgBuf.bindMemory(to: UInt8.self).baseAddress, UInt32(image.count),
                         tcBuf.bindMemory(to: UInt8.self).baseAddress, UInt32(trustcache.count),
-                        manBuf.bindMemory(to: UInt8.self).baseAddress, UInt32(manifest.count),
+                        manBuf.bindMemory(to: UInt8.self).baseAddress, UInt32(manifest.count)
                     )
                 }
             }
+        }
+        if let errPtr = result.error {
+            let msg = String(cString: errPtr)
+            _rust_bridge_idevice_free_string(errPtr)
+            throw NSError(domain: "minimuxer", code: Int(result.value), userInfo: [
+                NSLocalizedDescriptionKey: msg
+            ])
         }
     }
 

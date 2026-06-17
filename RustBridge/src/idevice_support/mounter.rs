@@ -12,12 +12,12 @@ pub async fn mount_personalized_ddi_rppairing(
     image_bytes: &[u8],
     trustcache_bytes: &[u8],
     manifest_bytes: &[u8],
-) -> i32 {
+) -> Result<(), (i32, String)> {
     let mut lockdown_client = match connect_to_rsd_services::<LockdownClient>().await {
         Ok(m) => m,
         Err(e) => {
             error!("ImageMounter: {:?}", e);
-            return 4;
+            return Err((4, format!("Rust ImageMounter connection error: {:?}", e)));
         }
     };
 
@@ -25,7 +25,7 @@ pub async fn mount_personalized_ddi_rppairing(
         Ok(s) => s,
         Err(e) => {
             error!("ImageMounter: {:?}", e);
-            return 5;
+            return Err((5, format!("ImageMounter: UniqueChipID get value failed: {:?}", e)));
         }
     };
 
@@ -33,7 +33,7 @@ pub async fn mount_personalized_ddi_rppairing(
         Some(s) => s,
         None => {
             error!("ImageMounter: Failed to convert UniqueChipID to string");
-            return 5;
+            return Err((5, "ImageMounter: Failed to convert UniqueChipID to string".to_string()));
         }
     };
 
@@ -41,7 +41,7 @@ pub async fn mount_personalized_ddi_rppairing(
         Ok(m) => m,
         Err(e) => {
             error!("ImageMounter: {:?}", e);
-            return 6;
+            return Err((6, format!("ImageMounter connect to RSD services failed: {:?}", e)));
         }
     };
 
@@ -49,12 +49,12 @@ pub async fn mount_personalized_ddi_rppairing(
         Ok(i) => i,
         Err(e) => {
             error!("copy_devices: {:?}", e);
-            return 6;
+            return Err((6, format!("copy_devices failed: {:?}", e)));
         }
     };
     if !images.is_empty() {
         info!("Already mounted");
-        return 0;
+        return Ok(());
     }
 
     info!("Mounting personalized DDI...");
@@ -62,7 +62,7 @@ pub async fn mount_personalized_ddi_rppairing(
         Ok(i) => i,
         Err(e) => {
             error!("get connection: {:?}", e);
-            return 6;
+            return Err((6, format!("get connection failed: {:?}", e)));
         }
     };
     let conn = &mut *connection;
@@ -88,9 +88,9 @@ pub async fn mount_personalized_ddi_rppairing(
         .await
     {
         error!("Mount failed: {:?}", e);
-        return 8;
+        return Err((8, format!("Mount failed: {:?}", e)));
     }
 
     info!("DDI mounted");
-    0
+    Ok(())
 }

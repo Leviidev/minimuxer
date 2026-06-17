@@ -295,13 +295,11 @@ public class RPMounter: MounterProvider {
                 while !self.dmgMounted {
                     Thread.sleep(forTimeInterval: 1.0)
                     do {
-                        let result = RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
-                        if result == 0 {
-                            print("[minimuxer] DDI mounted successfully")
-                            self.dmgMounted = true
-                        } else {
-                            print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
-                        }
+                        try RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
+                        print("[minimuxer] DDI mounted successfully")
+                        self.dmgMounted = true
+                    } catch {
+                        print("[minimuxer] ERROR: Failed to mount DDI: \(error)")
                     }
                 }
             }

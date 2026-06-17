@@ -53,18 +53,24 @@ public final class NetworkObserver {
                 print("[minimuxer] [net] update the device endpoint with discovered peer on the vpn interface")
                 DeviceEndpoint.shared.update(peer)
                 Muxer.notifyDeviceAttached(deviceIP: peer)
-                Heartbeat.start()
+                if !Muxer.isrppairing {
+                    Heartbeat.start()
+                }
             } else {
                 print("[minimuxer] [net] peer not available for", info.name)
                 DeviceEndpoint.shared.clear()
                 Muxer.notifyDeviceDetached()
-                Heartbeat.stop()
+                if !Muxer.isrppairing {
+                    Heartbeat.stop()
+                }
             }
         } else {
             print("[minimuxer] [net] no SideVPN endpoint detected")
             DeviceEndpoint.shared.clear()
             Muxer.notifyDeviceDetached()
-            Heartbeat.stop()
+            if !Muxer.isrppairing {
+                Heartbeat.stop()
+            }
         }
     }
     

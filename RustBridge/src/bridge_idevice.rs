@@ -188,6 +188,12 @@ pub extern "C" fn rust_bridge_idevice_set_rppairing_file(
     }
 }
 
+#[repr(C)]
+pub struct MountResult {
+    pub value: i32,
+    pub error: *mut c_char,
+}
+
 #[no_mangle]
 pub extern "C" fn rust_bridge_idevice_mount_personalized_ddi(
     image_ptr: *const u8,
@@ -196,11 +202,20 @@ pub extern "C" fn rust_bridge_idevice_mount_personalized_ddi(
     trustcache_len: u32,
     manifest_ptr: *const u8,
     manifest_len: u32,
-) -> i32 {
+) -> MountResult {
     let image = unsafe { std::slice::from_raw_parts(image_ptr, image_len as usize) };
     let trustcache = unsafe { std::slice::from_raw_parts(trustcache_ptr, trustcache_len as usize) };
     let manifest = unsafe { std::slice::from_raw_parts(manifest_ptr, manifest_len as usize) };
     RUNTIME.block_on(async move {
-        mount_personalized_ddi_rppairing(image, trustcache, manifest).await
+        match mount_personalized_ddi_rppairing(image, trustcache, manifest).await {
+            Ok(()) => MountResult {
+                value: 0,
+                error: std::ptr::null_mut(),
+            },
+            Err((code, err_msg)) => MountResult {
+                value: code,
+                error: to_char(err_msg),
+            },
+        }
     })
 }
