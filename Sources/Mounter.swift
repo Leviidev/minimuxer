@@ -11,8 +11,8 @@ import RustBridge
 import ZIPFoundation
 
 
-public protocol MounterProvider {
-    var dmgMounted:Bool { get }
+public protocol MounterProvider: AnyObject {
+    var dmgMounted:Bool { get set }
     func startAutoMounter(docsPath: String);
 }
 
@@ -34,19 +34,18 @@ public class Mounter {
     public static func startAutoMounter(docsPath: String) {
         getProvider().startAutoMounter(docsPath: docsPath)
     }
-    public static var dmgMounted:Bool {
-        get {
-            return getProvider().dmgMounted
-        }
+    public static var dmgMounted: Bool {
+        get { getProvider().dmgMounted }
+        set { getProvider().dmgMounted = newValue }
     }
 }
 
 public class LockDownMounter: MounterProvider {
-    public static var dmgMounted = false
-    private static var threadAlive = false
-    private static let lock = NSLock()
+    public var dmgMounted = false
+    private var threadAlive = false
+    private let lock = NSLock()
 
-    public static func startAutoMounter(docsPath: String) {
+    public func startAutoMounter(docsPath: String) {
         lock.lock()
         guard !threadAlive else {
             lock.unlock()
@@ -61,9 +60,9 @@ public class LockDownMounter: MounterProvider {
         print("[minimuxer] mount-thread: Starting mount thread...")
         Task.detached(priority: .userInitiated) {
             defer {
-                lock.lock()
-                threadAlive = false
-                lock.unlock()
+                self.lock.withLock{
+                    self.threadAlive = false
+                }
                 print("[minimuxer] mount-thread: stopped")
             }
             print("[minimuxer] mount-thread: started")
@@ -77,7 +76,7 @@ public class LockDownMounter: MounterProvider {
 
             try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
 
-            while !dmgMounted {
+            while !self.dmgMounted {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 do {
                     let device = try Device.getFirstDevice()
@@ -105,6 +104,10 @@ public class LockDownMounter: MounterProvider {
                         try await self.handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
                     } else {
                         try await self.handlePost17Mount(dmgDocsPath: dmgDocsPath)
+                    }
+                } catch let error as MinimuxerError {
+                    if error == .NoDevice {
+                        continue
                     }
                     print("[minimuxer] mount-thread: ERROR: Mount failed with .NoDevice error: \(error)")
                     await Minimuxer.checkAndNotify(.failed(.mounter, error))
@@ -167,7 +170,7 @@ public class LockDownMounter: MounterProvider {
          await Minimuxer.checkAndNotify(.ready(.mounter))
     }
 
-    private func handlePost17Mount(dmgDocsPath: String) throws {
+    private func handlePost17Mount(dmgDocsPath: String) async throws {
         let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
 
          print(

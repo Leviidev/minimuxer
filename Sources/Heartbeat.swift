@@ -31,10 +31,10 @@ public class Heartbeat {
         print("[minimuxer] Starting heartbeat thread...")
         Task.detached(priority: .userInitiated) {
             defer {
-                lock.lock()
-                threadAlive = false
-                running = false
-                lock.unlock()
+                lock.withLock{
+                    threadAlive = false
+                    running = false
+                }
                 lastBeatSuccessful = false
                 print("[minimuxer] heartbeat-thread: stopped")
             }
