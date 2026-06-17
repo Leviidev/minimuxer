@@ -14,9 +14,23 @@ import Darwin
 import Glibc
 #endif
 
+public enum MinimuxerComponent: String {
+    case heartbeat
+    case mounter
+}
+
+public struct MinimuxerBackgroundError: Error, CustomStringConvertible {
+    public let component: MinimuxerComponent
+    public let error: Error
+    
+    public var description: String {
+        return "[\(component.rawValue)] \(error.localizedDescription)"
+    }
+}
+
 public enum RestartStatus {
-    case ready
-    case failed(Error)
+    case ready(MinimuxerComponent)
+    case failed(MinimuxerComponent, Error)
 }
 
 public struct Minimuxer {
@@ -197,12 +211,13 @@ public struct Minimuxer {
                     continuation = nil
                     co.resume(returning: ())
                 }
-            case .failed(let error):
+            case .failed(let component, let error):
                 if let co = continuation {
                     continuation = nil
                     co.resume(throwing: error)
                 } else {
-                    await onBackgroundError?(error)
+                    let wrappedError = MinimuxerBackgroundError(component: component, error: error)
+                    await onBackgroundError?(wrappedError)
                 }
         }
     }

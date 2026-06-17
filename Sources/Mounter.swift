@@ -57,7 +57,7 @@ public class Mounter {
                               if err.contains("InvalidConf") {
                                   print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
                                   print("[minimuxer] mounter-thread: exiting due to invalid pairing")
-                                  await Minimuxer.checkAndNotify(.failed(MinimuxerError.PairingFile))
+                                  await Minimuxer.checkAndNotify(.failed(.mounter, MinimuxerError.PairingFile))
                                   return
                           } else {
                             print("[minimuxer] mount-thread: WARN: Could not connect to lockdown for mounter: \(err)")
@@ -80,11 +80,11 @@ public class Mounter {
                         continue
                     }
                     print("[minimuxer] mount-thread: ERROR: Mount failed with .NoDevice error: \(error)")
-                    await Minimuxer.checkAndNotify(.failed(error))
+                    await Minimuxer.checkAndNotify(.failed(.mounter, error))
                     return
                 } catch {
                     print("[minimuxer] mount-thread: ERROR: Mount failed with unknown error: \(error)")
-                    await Minimuxer.checkAndNotify(.failed(error))
+                    await Minimuxer.checkAndNotify(.failed(.mounter, error))
                     return
                 }
             }
@@ -104,7 +104,7 @@ public class Mounter {
            let sigArray = plist["ImageSignature"] as? [Any], !sigArray.isEmpty {
              print("[minimuxer] Developer disk image already mounted")
              dmgMounted = true
-             await Minimuxer.checkAndNotify(.ready)
+             await Minimuxer.checkAndNotify(.ready(.mounter))
              return
         }
 
@@ -136,7 +136,7 @@ public class Mounter {
         }
          print("[minimuxer] Successfully mounted the image")
          dmgMounted = true
-         await Minimuxer.checkAndNotify(.ready)
+         await Minimuxer.checkAndNotify(.ready(.mounter))
     }
 
     private static func handlePost17Mount(dmgDocsPath: String) async throws {
@@ -188,7 +188,7 @@ public class Mounter {
          if result == 0 {
               print("[minimuxer] DDI mounted successfully")
               dmgMounted = true
-              await Minimuxer.checkAndNotify(.ready)
+              await Minimuxer.checkAndNotify(.ready(.mounter))
         } else {
             print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
             switch result {

@@ -86,7 +86,7 @@ public class Heartbeat {
                         if err.contains("InvalidConf") {
                             print("[minimuxer] heartbeat-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
                             print("[minimuxer] heartbeat-thread: exiting due to invalid pairing")
-                            await Minimuxer.checkAndNotify(.failed(MinimuxerError.PairingFile))
+                            await Minimuxer.checkAndNotify(.failed(.heartbeat, MinimuxerError.PairingFile))
                             lastBeatSuccessful = false
                             lock.lock()
                             running = false
@@ -120,7 +120,7 @@ public class Heartbeat {
 
                     if heartbeat.send(plistXml: plist) {
                         lastBeatSuccessful = true
-                        await Minimuxer.checkAndNotify(.ready)
+                        await Minimuxer.checkAndNotify(.ready(.heartbeat))
                     } else {
                         print("[minimuxer] heartbeat-thread: ERROR: Heartbeat send failed")
                         lastBeatSuccessful = false
