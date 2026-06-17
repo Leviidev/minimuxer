@@ -55,7 +55,7 @@ public class Mounter {
                         case .success(let ld): lockdown = ld
                         case .error(let err):
                               if err.contains("InvalidConf") {
-                                  print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                                  print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please redo-pairing for your device.")
                                   print("[minimuxer] mounter-thread: exiting due to invalid pairing")
                                   await Minimuxer.checkAndNotify(.failed(.mounter, MinimuxerError.PairingFile))
                                   return
