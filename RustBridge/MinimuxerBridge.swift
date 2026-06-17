@@ -26,8 +26,13 @@ internal func _rust_bridge_device_get_first() -> UnsafeMutableRawPointer?
 internal func _rust_bridge_device_get_udid(_ device: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<Int8>?
 
 // Lockdown
+internal struct CLockdownResult {
+    var value: UnsafeMutableRawPointer?
+    var error: UnsafeMutablePointer<Int8>?
+}
+
 @_silgen_name("rust_bridge_lockdown_new")
-internal func _rust_bridge_lockdown_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer?
+internal func _rust_bridge_lockdown_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> CLockdownResult
 
 @_silgen_name("rust_bridge_lockdown_get_value")
 internal func _rust_bridge_lockdown_get_value(_ client: UnsafeMutableRawPointer?, _ domain: UnsafePointer<Int8>?, _ key: UnsafePointer<Int8>?) -> UnsafeMutablePointer<Int8>?
@@ -113,8 +118,13 @@ internal func _rust_bridge_mounter_upload(_ client: UnsafeMutableRawPointer?, _ 
 internal func _rust_bridge_mounter_mount(_ client: UnsafeMutableRawPointer?, _ path: UnsafePointer<Int8>?, _ signature: UnsafePointer<Int8>?, _ image_type: UnsafePointer<Int8>?) -> Bool
 
 // Heartbeat
+internal struct CHeartbeatResult {
+    var value: UnsafeMutableRawPointer?
+    var error: UnsafeMutablePointer<Int8>?
+}
+
 @_silgen_name("rust_bridge_heartbeat_new")
-internal func _rust_bridge_heartbeat_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> UnsafeMutableRawPointer?
+internal func _rust_bridge_heartbeat_new(_ device: UnsafeMutableRawPointer?, _ label: UnsafePointer<Int8>?) -> CHeartbeatResult
 
 @_silgen_name("rust_bridge_heartbeat_receive")
 internal func _rust_bridge_heartbeat_receive(_ client: UnsafeMutableRawPointer?, _ timeout_ms: UInt32) -> UnsafeMutablePointer<Int8>?
@@ -144,13 +154,26 @@ public final class RustDevice {
     }
 }
 
+public enum LockdownConnectResult {
+    case success(RustLockdown)
+    case error(String)
+}
+
 public final class RustLockdown {
     internal let ptr: UnsafeMutableRawPointer
     init(ptr: UnsafeMutableRawPointer) { self.ptr = ptr }
     deinit { _rust_bridge_free_pointer(ptr) }
-    public static func connect(device: RustDevice, label: String) -> RustLockdown? {
-        guard let p = _rust_bridge_lockdown_new(device.ptr, label) else { return nil }
-        return RustLockdown(ptr: p)
+    public static func connect(device: RustDevice, label: String) -> LockdownConnectResult {
+        let result = _rust_bridge_lockdown_new(device.ptr, label)
+        if let errPtr = result.error {
+            let msg = String(cString: errPtr)
+            _rust_bridge_free_string(errPtr)
+            return .error(msg)
+        }
+        if let ptr = result.value {
+            return .success(RustLockdown(ptr: ptr))
+        }
+        return .error("Unknown error")
     }
     public func getValue(domain: String? = nil, key: String) -> String? {
         guard let p = _rust_bridge_lockdown_get_value(ptr, domain, key) else { return nil }
@@ -305,13 +328,26 @@ public final class RustMounter {
     }
 }
 
+public enum HeartbeatConnectResult {
+    case success(RustHeartbeat)
+    case error(String)
+}
+
 public final class RustHeartbeat {
     internal let ptr: UnsafeMutableRawPointer
     init(ptr: UnsafeMutableRawPointer) { self.ptr = ptr }
     deinit { _rust_bridge_free_pointer(ptr) }
-    public static func connect(device: RustDevice, label: String) -> RustHeartbeat? {
-        guard let p = _rust_bridge_heartbeat_new(device.ptr, label) else { return nil }
-        return RustHeartbeat(ptr: p)
+    public static func connect(device: RustDevice, label: String) -> HeartbeatConnectResult {
+        let result = _rust_bridge_heartbeat_new(device.ptr, label)
+        if let errPtr = result.error {
+            let msg = String(cString: errPtr)
+            _rust_bridge_free_string(errPtr)
+            return .error(msg)
+        }
+        if let ptr = result.value {
+            return .success(RustHeartbeat(ptr: ptr))
+        }
+        return .error("Unknown error")
     }
     public func receive(timeoutMs: UInt32) -> String? {
         guard let p = _rust_bridge_heartbeat_receive(ptr, timeoutMs) else { return nil }

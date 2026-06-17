@@ -14,9 +14,12 @@ public class Jit {
         print("[minimuxer] Debugging app ID: \(appId)")
         let device = try Device.getFirstDevice()
 
-        guard let lockdown = RustLockdown.connect(device: device.internalInstance, label: "minimuxer") else {
-            print("[minimuxer] ERROR: Failed to connect to lockdown")
-            throw MinimuxerError.CreateLockdown
+        let lockdown: RustLockdown
+        switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
+        case .success(let ld): lockdown = ld
+        case .error(let err):
+            print("[minimuxer] ERROR: Failed to connect to lockdown: \(err)")
+            throw err.contains("InvalidConf") ? MinimuxerError.PairingFile : MinimuxerError.CreateLockdown
         }
 
         guard let versionStr = lockdown.getValue(key: "ProductVersion") else {

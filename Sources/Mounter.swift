@@ -17,8 +17,13 @@ public class Mounter {
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
         let dmgDocsPath = "\(path)/DMG"
 
+        print("[minimuxer] mount-thread: Starting mount thread...")
         Thread.detachNewThread {
-            print("[minimuxer] Starting mount thread...")
+            defer {
+                print("[minimuxer] mount-thread: stopped")
+            }
+            print("[minimuxer] heartbeat-thread: started")
+            
             while !Muxer.usbmuxdReady {
                 Thread.sleep(forTimeInterval: 1)
                 let ts = ISO8601DateFormatter().string(from: Date())
@@ -32,9 +37,21 @@ public class Mounter {
                 Thread.sleep(forTimeInterval: 1.0)
                 do {
                     let device = try Device.getFirstDevice()
-                    guard let lockdown = RustLockdown.connect(device: device.internalInstance, label: "minimuxer"),
-                          let versionStr = lockdown.getValue(key: "ProductVersion") else {
-                        print("[minimuxer] WARN: Could not get device/version for mounter")
+                    let lockdown: RustLockdown
+                    switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
+                    case .success(let ld): lockdown = ld
+                    case .error(let err):
+                        if err.contains("InvalidConf") {
+                            print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                            print("[minimuxer] mounter-thread: exiting due to invalid pairing")
+                            return
+                       } else {
+                            print("[minimuxer] mount-thread: WARN: Could not connect to lockdown for mounter: \(err)")
+                        }
+                        continue
+                    }
+                    guard let versionStr = lockdown.getValue(key: "ProductVersion") else {
+                        print("[minimuxer] mount-thread: WARN: Could not get device version for mounter")
                         continue
                     }
 

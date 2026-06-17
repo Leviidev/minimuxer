@@ -52,14 +52,26 @@ pub extern "C" fn rust_bridge_device_get_udid(device: *mut DeviceWrapper) -> *mu
 // --- Lockdown ---
 pub struct LockdownWrapper<'a>(LockdowndClient<'a>);
 
+#[repr(C)]
+pub struct LockdownResult {
+    pub value: *mut LockdownWrapper<'static>,
+    pub error: *mut c_char,
+}
+
 #[no_mangle]
-pub extern "C" fn rust_bridge_lockdown_new(device: *mut DeviceWrapper, label: *const c_char) -> *mut LockdownWrapper<'static> {
+pub extern "C" fn rust_bridge_lockdown_new(device: *mut DeviceWrapper, label: *const c_char) -> LockdownResult {
     let d = unsafe { &*device };
     let label = unsafe { CStr::from_ptr(label) }.to_str().unwrap();
     unsafe {
         match d.0.new_lockdownd_client(label) {
-            Ok(c) => Box::into_raw(Box::new(LockdownWrapper(std::mem::transmute(c)))),
-            Err(_) => std::ptr::null_mut(),
+            Ok(c) => LockdownResult {
+                value: Box::into_raw(Box::new(LockdownWrapper(std::mem::transmute(c)))),
+                error: std::ptr::null_mut(),
+            },
+            Err(e) => LockdownResult {
+                value: std::ptr::null_mut(),
+                error: to_char(format!("{:?}", e)),
+            },
         }
     }
 }
@@ -376,13 +388,25 @@ pub extern "C" fn rust_bridge_mounter_mount(client: *mut MounterWrapper, path: *
 // --- Heartbeat ---
 pub struct HeartbeatWrapper(HeartbeatClient);
 
+#[repr(C)]
+pub struct HeartbeatResult {
+    pub value: *mut HeartbeatWrapper,
+    pub error: *mut c_char,
+}
+
 #[no_mangle]
-pub extern "C" fn rust_bridge_heartbeat_new(device: *mut DeviceWrapper, label: *const c_char) -> *mut HeartbeatWrapper {
+pub extern "C" fn rust_bridge_heartbeat_new(device: *mut DeviceWrapper, label: *const c_char) -> HeartbeatResult {
     let d = unsafe { &*device };
     let label = unsafe { CStr::from_ptr(label) }.to_str().unwrap();
     match d.0.new_heartbeat_client(label) {
-        Ok(c) => Box::into_raw(Box::new(HeartbeatWrapper(c))),
-        Err(_) => std::ptr::null_mut(),
+        Ok(c) => HeartbeatResult {
+            value: Box::into_raw(Box::new(HeartbeatWrapper(c))),
+            error: std::ptr::null_mut(),
+        },
+        Err(e) => HeartbeatResult {
+            value: std::ptr::null_mut(),
+            error: to_char(format!("{:?}", e)),
+        },
     }
 }
 

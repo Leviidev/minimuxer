@@ -43,25 +43,35 @@ public class Muxer {
         }
 
         guard let pairingData = pairingFile.data(using: .utf8),
-              let pairingDict = try? PropertyListSerialization.propertyList(from: pairingData, options: [], format: nil) as? [String: Any],
-              let pairingXml  = try? PropertyListSerialization.data(fromPropertyList: pairingDict, format: .xml, options: 0)
+              let pairingDict = try? PropertyListSerialization.propertyList(from: pairingData, options: [], format: nil) as? [String: Any]
         else {
             print("[minimuxer] ERROR: Failed to parse pairing file")
             throw MinimuxerError.PairingFile
         }
 
-        cachedPairingDict = pairingDict
-        cachedPairingXml  = pairingXml
+        print("[minimuxer] DEBUG: loaded pairing file keys: \(pairingDict.keys)")
 
         guard let _ = pairingDict["UDID"] as? String else {
             print("[minimuxer] ERROR: Pairing file missing UDID")
             throw MinimuxerError.PairingFile
         }
 
+        var cleanPairingDict = pairingDict
+        cleanPairingDict.removeValue(forKey: "UDID")
+        
+        guard let pairingXml = try? PropertyListSerialization.data(fromPropertyList: cleanPairingDict, format: .xml, options: 0) else {
+            print("[minimuxer] ERROR: Failed to serialize clean pairing file")
+            throw MinimuxerError.PairingFile
+        }
+
+        cachedPairingDict = pairingDict
+        cachedPairingXml  = pairingXml
+
         started = true
 
         Thread.detachNewThread { listenLoop() }
-        Heartbeat.startBeat()
+        // Heartbeat is started/stopped by NetworkObserver when VPN peer changes
+        // Heartbeat.startBeat()
         print("[minimuxer] minimuxer has started!")
     }
 
@@ -234,11 +244,16 @@ public class Muxer {
                 return ["MessageType": "Result", "Number": 0]
                 
             case "ReadBUID":
-                return ["BUID": "00000000-0000-0000-0000-000000000000"]
+                let buid = cachedPairingDict?["SystemBUID"] as? String ?? "00000000-0000-0000-0000-000000000000"
+                return ["BUID": buid]
 
             case "ReadPairRecord":
                 let pairingData = cachedPairingXml ?? Data()
-                return ["PairRecordData": pairingData]
+                return [
+                    "MessageType": "Result",
+                    "Number": 0,
+                    "PairRecordData": pairingData
+                ]
 
             default:
                 print("[minimuxer] WARN: unknown message type:", messageType)
@@ -276,12 +291,14 @@ public class Muxer {
     // Encodes an IPv4 address into the 152-byte sockaddr_storage layout that
     // libusbmuxd expects in the NetworkAddress field of the device properties.
     private static func convertIp(_ ip: String) -> [UInt8] {
+        // print("[minimuxer] DEBUG: convertIp called for ip: \(ip)")
         var data = [UInt8](repeating: 0, count: 152)
         var addr = in_addr()
         if inet_pton(AF_INET, ip, &addr) == 1 {
-            data[0] = 10; data[1] = 0x02
+            data[0] = 16; data[1] = 0x02
             let ipBytes = withUnsafeBytes(of: &addr.s_addr) { Array($0) }
             for (i, byte) in ipBytes.enumerated() { data[4 + i] = byte }
+            // print("[minimuxer] DEBUG: convertIp output bytes 0..7: \(data[0...7])")
         }
         return data
     }

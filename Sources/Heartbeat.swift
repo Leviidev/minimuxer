@@ -11,10 +11,37 @@ import RustBridge
 
 public class Heartbeat {
     public static var lastBeatSuccessful = false
+    private static var running = false      // "should keep going" signal
+    private static var threadAlive = false   // true while a thread is actually executing
+    private static let lock = NSLock()
 
-    public static func startBeat() {
+    /// Start the heartbeat loop. Safe to call multiple times — ignored if a thread is already alive.
+    public static func start() {
+        lock.lock()
+        guard !threadAlive else {
+            // A thread is still running — just make sure it keeps going
+            running = true
+            lock.unlock()
+            return
+        }
+        running = true
+        threadAlive = true
+        lock.unlock()
+
+        print("[minimuxer] Starting heartbeat thread...")
+
         Thread.detachNewThread {
-            print("[minimuxer] Starting heartbeat thread...")
+            defer {
+                lock.lock()
+                threadAlive = false
+                running = false
+                lock.unlock()
+                lastBeatSuccessful = false
+                print("[minimuxer] heartbeat-thread: stopped")
+            }
+
+            print("[minimuxer] heartbeat-thread: started")
+
             while !Muxer.usbmuxdReady {
                 Thread.sleep(forTimeInterval: 1)
                 let ts = ISO8601DateFormatter().string(from: Date())
@@ -23,7 +50,7 @@ public class Heartbeat {
             print("[minimuxer] heartbeat-thread: usbmuxd is ready")
 
             // outer loop
-            while true {
+            while running {
                 let deviceIP: String
                 do {
                     deviceIP = try DeviceEndpoint.shared.ip()
@@ -47,23 +74,56 @@ public class Heartbeat {
                 do {
                     device = try Device.getFirstDevice()
                 } catch {
-                    print("[minimuxer] WARN: Could not query device from usbmuxd for heartbeat")
+                    print("[minimuxer] heartbeat-thread: WARN: Could not query device from usbmuxd for heartbeat")
                     lastBeatSuccessful = false
                     Thread.sleep(forTimeInterval: 1)
                     continue
                 }
 
-                guard let heartbeat = RustHeartbeat.connect(device: device.internalInstance, label: "minimuxer") else {
-                    print("[minimuxer] ERROR: Failed to create heartbeat client")
-                    lastBeatSuccessful = false
-                    Thread.sleep(forTimeInterval: 1)
-                    continue
+                // Check lockdown first — heartbeat wraps InvalidConf as UnknownError
+                switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
+                    case .success: break
+                    case .error(let err):
+                        if err.contains("InvalidConf") {
+                            print("[minimuxer] heartbeat-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                            print("[minimuxer] heartbeat-thread: exiting due to invalid pairing")
+                            lastBeatSuccessful = false
+                            lock.lock()
+                            running = false
+                            lock.unlock()
+                            return
+                        } else {
+                            print("[minimuxer] heartbeat-thread: WARN: Could not connect to lockdown for heartbeat: \(err)")
+                        }
+                        lastBeatSuccessful = false
+                        Thread.sleep(forTimeInterval: 1)
+                        continue
+                }
+
+                let heartbeat: RustHeartbeat
+                switch RustHeartbeat.connect(device: device.internalInstance, label: "minimuxer") {
+                    case .success(let hb): heartbeat = hb
+                    case .error(let err):
+                        if err.contains("InvalidConf") {
+                            print("[minimuxer] heartbeat-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                            print("[minimuxer] heartbeat-thread: exiting due to invalid pairing")
+                            lastBeatSuccessful = false
+                            lock.lock()
+                            running = false
+                            lock.unlock()
+                            return
+                        } else {
+                        print("[minimuxer] heartbeat-thread: ERROR: Failed to create heartbeat client: \(err)")
+                        }
+                        lastBeatSuccessful = false
+                        Thread.sleep(forTimeInterval: 1)
+                        continue
                 }
 
                 // Inner loop: keep receiving and sending heartbeats
-                while true {
+                while running {
                    guard let plist = heartbeat.receive(timeoutMs: MuxerConstants.heartbeatTimeoutMs) else {
-                       print("[minimuxer] ERROR: Heartbeat recv failed")
+                       print("[minimuxer] heartbeat-thread: ERROR: Heartbeat recv failed")
                        lastBeatSuccessful = false
                        break
                    }
@@ -71,12 +131,22 @@ public class Heartbeat {
                     if heartbeat.send(plistXml: plist) {
                         lastBeatSuccessful = true
                     } else {
-                        print("[minimuxer] ERROR: Heartbeat send failed")
+                        print("[minimuxer] heartbeat-thread: ERROR: Heartbeat send failed")
                         lastBeatSuccessful = false
                         break
                     }
                 }
             }
         }
+    }
+
+    /// Signal the heartbeat thread to stop. The thread will exit on next iteration.
+    public static func stop() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard running else { return }
+        running = false
+        lastBeatSuccessful = false
+        print("[minimuxer] Heartbeat stop requested")
     }
 }
