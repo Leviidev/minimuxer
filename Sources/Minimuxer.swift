@@ -14,6 +14,11 @@ import Darwin
 import Glibc
 #endif
 
+public enum RestartStatus {
+    case ready
+    case failed(Error)
+}
+
 public struct Minimuxer {
     public static func describeError(_ error: MinimuxerError) -> String {
         return error.description
@@ -41,7 +46,7 @@ public struct Minimuxer {
         } catch {
             deviceExists = false
         }
-        guard deviceConnection, deviceExists, Heartbeat.lastBeatSuccessful, Muxer.started, Muxer.usbmuxdReady else {
+        guard deviceConnection, deviceExists, Heartbeat.lastBeatSuccessful, Mounter.dmgMounted, Muxer.started, Muxer.usbmuxdReady else {
             print(
                 "minimuxer not ready: " +
                 "conn=\(deviceConnection) " +
@@ -151,6 +156,14 @@ public struct Minimuxer {
     }
 
     public static func restart() async throws {
+        stateLock.lock()
+        guard continuation == nil else {
+            stateLock.unlock()
+            print("[minimuxer] Restart already in progress, ignoring request.")
+            throw MinimuxerError.RestartAlreadyInProgressError
+        }
+        stateLock.unlock()
+
         print("[minimuxer] Restarting services...")
         
         try await withCheckedThrowingContinuation { (co: CheckedContinuation<Void, Error>) in
@@ -174,25 +187,23 @@ public struct Minimuxer {
         }
     }
 
-    public static func checkAndNotifyReady() {
+    public static func checkAndNotify(_ status: RestartStatus) async {
         stateLock.lock()
         defer { stateLock.unlock() }
         
-        if ready() {
-            if let co = continuation {
-                continuation = nil
-                co.resume()
-            }
-        }
-    }
-
-    public static func reportError(_ error: Error) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        
-        if let co = continuation {
-            continuation = nil
-            co.resume(throwing: error)
+        switch status {
+            case .ready:
+                if let co = continuation, ready() {
+                    continuation = nil
+                    co.resume(returning: ())
+                }
+            case .failed(let error):
+                if let co = continuation {
+                    continuation = nil
+                    co.resume(throwing: error)
+                } else {
+                    await onBackgroundError?(error)
+                }
         }
     }
 

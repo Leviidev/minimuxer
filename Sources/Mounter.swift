@@ -12,14 +12,27 @@ import ZIPFoundation
 
 public class Mounter {
     public static var dmgMounted = false
+    private static var threadAlive = false
+    private static let lock = NSLock()
 
     public static func startAutoMounter(docsPath: String) {
+        lock.lock()
+        guard !threadAlive else {
+            lock.unlock()
+            return
+        }
+        threadAlive = true
+        lock.unlock()
+
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
         let dmgDocsPath = "\(path)/DMG"
 
         print("[minimuxer] mount-thread: Starting mount thread...")
         Task.detached(priority: .userInitiated) {
             defer {
+                lock.lock()
+                threadAlive = false
+                lock.unlock()
                 print("[minimuxer] mount-thread: stopped")
             }
             print("[minimuxer] mount-thread: started")
@@ -41,13 +54,12 @@ public class Mounter {
                     switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
                         case .success(let ld): lockdown = ld
                         case .error(let err):
-                             if err.contains("InvalidConf") {
-                                 print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
-                                 print("[minimuxer] mounter-thread: exiting due to invalid pairing")
-                                 await Minimuxer.onBackgroundError?(MinimuxerError.PairingFile)
-                                 Minimuxer.reportError(MinimuxerError.PairingFile)
-                                 return
-                         } else {
+                              if err.contains("InvalidConf") {
+                                  print("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please re-pair your device.")
+                                  print("[minimuxer] mounter-thread: exiting due to invalid pairing")
+                                  await Minimuxer.checkAndNotify(.failed(MinimuxerError.PairingFile))
+                                  return
+                          } else {
                             print("[minimuxer] mount-thread: WARN: Could not connect to lockdown for mounter: \(err)")
                         }
                         continue
@@ -59,16 +71,27 @@ public class Mounter {
 
                     let major = Int(versionStr.split(separator: ".").first ?? "0") ?? 0
                     if major < 17 {
-                        try handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
+                        try await handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
                     } else {
-                        try handlePost17Mount(dmgDocsPath: dmgDocsPath)
+                        try await handlePost17Mount(dmgDocsPath: dmgDocsPath)
                     }
-                } catch {}
+                } catch let error as MinimuxerError {
+                    if error == .NoDevice {
+                        continue
+                    }
+                    print("[minimuxer] mount-thread: ERROR: Mount failed with .NoDevice error: \(error)")
+                    await Minimuxer.checkAndNotify(.failed(error))
+                    return
+                } catch {
+                    print("[minimuxer] mount-thread: ERROR: Mount failed with unknown error: \(error)")
+                    await Minimuxer.checkAndNotify(.failed(error))
+                    return
+                }
             }
         }
     }
 
-    private static func handlePre17Mount(device: Device, iosVersion: String, dmgDocsPath: String) throws {
+    private static func handlePre17Mount(device: Device, iosVersion: String, dmgDocsPath: String) async throws {
         print("[minimuxer] Starting image mounter (pre-17)")
         guard let mounter = RustMounter.connect(device: device.internalInstance, label: "sidestore-image-reeeee") else {
             print("[minimuxer] ERROR: Unable to start mobile image mounter")
@@ -81,7 +104,7 @@ public class Mounter {
            let sigArray = plist["ImageSignature"] as? [Any], !sigArray.isEmpty {
              print("[minimuxer] Developer disk image already mounted")
              dmgMounted = true
-             Minimuxer.checkAndNotifyReady()
+             await Minimuxer.checkAndNotify(.ready)
              return
         }
 
@@ -113,10 +136,10 @@ public class Mounter {
         }
          print("[minimuxer] Successfully mounted the image")
          dmgMounted = true
-         Minimuxer.checkAndNotifyReady()
+         await Minimuxer.checkAndNotify(.ready)
     }
 
-    private static func handlePost17Mount(dmgDocsPath: String) throws {
+    private static func handlePost17Mount(dmgDocsPath: String) async throws {
         let dir = URL(fileURLWithPath: dmgDocsPath)
         let tasks: [(String, URL)] = [
             (MuxerConstants.ddiImageURL, dir.appendingPathComponent("Image.dmg")),
@@ -163,17 +186,17 @@ public class Mounter {
             deviceIp: try DeviceEndpoint.shared.ip()
         )
          if result == 0 {
-             print("[minimuxer] DDI mounted successfully")
-             dmgMounted = true
-             Minimuxer.checkAndNotifyReady()
+              print("[minimuxer] DDI mounted successfully")
+              dmgMounted = true
+              await Minimuxer.checkAndNotify(.ready)
         } else {
             print("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
             switch result {
-            case 1: throw MinimuxerError.NoConnection
-            case 4: throw MinimuxerError.CreateLockdown
-            case 5: throw MinimuxerError.GetLockdownValue
-            case 6: throw MinimuxerError.ImageLookup
-            case 8: throw MinimuxerError.Mount
+                case 1: throw MinimuxerError.NoConnection
+                case 4: throw MinimuxerError.CreateLockdown
+                case 5: throw MinimuxerError.GetLockdownValue
+                case 6: throw MinimuxerError.ImageLookup
+                case 8: throw MinimuxerError.Mount
             default: throw MinimuxerError.Mount
             }
         }

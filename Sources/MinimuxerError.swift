@@ -8,10 +8,11 @@
 
 import Foundation
 
-public enum MinimuxerError: Error {
+public enum MinimuxerError: Error, Equatable {
     case NoDevice
     case NoConnection
     case PairingFile
+    case RestartAlreadyInProgressError
 
     case CreateDebug
     case CreateInstproxy
@@ -59,6 +60,7 @@ extension MinimuxerError: CustomStringConvertible {
         case .NoDevice: return "NoDevice"
         case .NoConnection: return "NoConnection"
         case .PairingFile: return "PairingFile"
+        case .RestartAlreadyInProgressError: return "RestartAlreadyInProgressError"
         case .CreateDebug: return "CreateDebug"
         case .CreateInstproxy: return "CreateInstproxy"
         case .CreateLockdown: return "CreateLockdown"
