@@ -280,8 +280,18 @@ public class LockDownMounter: MounterProvider {
 
 public class RPMounter: MounterProvider {
     public var dmgMounted: Bool = false
+    private var threadAlive = false
+    private let lock = NSLock()
 
     public func startAutoMounter(docsPath: String) {
+        lock.lock()
+        guard !threadAlive, !dmgMounted else {
+            lock.unlock()
+            return
+        }
+        threadAlive = true
+        lock.unlock()
+
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
         let dmgDocsPath = (path.hasSuffix("/") ? String(path.dropLast()) : path) + "/DMG"
 
@@ -290,7 +300,12 @@ public class RPMounter: MounterProvider {
             let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
             Thread.detachNewThread {
                 verboseLog("[minimuxer] Starting mount thread...")
-
+                defer {
+                    self.lock.withLock {
+                        self.threadAlive = false
+                    }
+                    verboseLog("[minimuxer] mount thread stopped")
+                }
                 while !self.dmgMounted {
                     Thread.sleep(forTimeInterval: 1.0)
                     do {
@@ -304,6 +319,9 @@ public class RPMounter: MounterProvider {
             }
         } catch {
             debugLog("[minimuxer] ERROR: \(error)")
+            self.lock.withLock {
+                self.threadAlive = false
+            }
         }
 
     }
