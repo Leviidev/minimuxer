@@ -55,6 +55,7 @@ async fn get_provider(muxer_addr: &str, device_ip: &str) -> Result<TcpProvider, 
 
     Ok(TcpProvider {
         addr: std::net::IpAddr::V4(Ipv4Addr::from_str(device_ip).unwrap()),
+        scope_id: None,
         pairing_file: dev.get_pairing_file().await.unwrap(),
         label: "minimuxer".to_string(),
     })

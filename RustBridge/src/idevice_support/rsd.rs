@@ -130,8 +130,8 @@ async fn create_rppairing_rsd_connection() -> Result<CachedRsdConnection, Idevic
 
     let conn = RpPairingSocket::new(stream);
 
-    let mut rpc = RemotePairingClient::new(conn, &"minimuxer", &mut pairing_file);
-    rpc.connect(async |_| "000000".to_string(), 0u8).await?;
+    let mut rpc = RemotePairingClient::new(conn, &"minimuxer");
+    rpc.connect(&mut pairing_file, || async { "000000".to_string() }).await?;
 
     use idevice::remote_pairing::connect_tls_psk_tunnel_native;
 
