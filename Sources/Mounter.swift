@@ -192,7 +192,7 @@ public class LockDownMounter: MounterProvider {
             dmgMounted = true
             await Minimuxer.checkAndNotify(.ready(.mounter))
         } else {
-            debugLog("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
+            verboseLog("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
             switch result {
                 case 1: throw MinimuxerError.connectionError
                 case 4: throw MinimuxerError.CreateLockdown
@@ -298,7 +298,7 @@ public class RPMounter: MounterProvider {
                         verboseLog("[minimuxer] DDI mounted successfully")
                         self.dmgMounted = true
                     } catch {
-                        debugLog("[minimuxer] ERROR: Failed to mount DDI: \(error)")
+                        verboseLog("[minimuxer] ERROR: Failed to mount DDI: \(error)")
                     }
                 }
             }
