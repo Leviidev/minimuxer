@@ -63,7 +63,7 @@ public struct Minimuxer {
                 "started=\(Muxer.started) " +
                 "ready=\(Muxer.usbmuxdReady)"
             )
-            return deviceConnection ? .success(.true) : .failure(MinimuxerError.connectionError)
+            return deviceConnection ? .success(true) : .failure(MinimuxerError.connectionError)
         }
         
         // continue with lockdown validation
@@ -92,7 +92,7 @@ public struct Minimuxer {
                 debugLog("[minimuxer] WARN: VPN subnet not patched")
             }
         }
-        return .success(.true)
+        return .success(true)
     }
 
     public static var isLoggingEnabled = true
