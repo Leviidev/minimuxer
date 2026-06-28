@@ -298,16 +298,22 @@ public class RPMounter: MounterProvider {
         do {
             try FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
             let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
-            Thread.detachNewThread {
-                verboseLog("[minimuxer] Starting mount thread...")
+            verboseLog("[minimuxer] mount-thread: Starting mount thread...")
+
+            Task.detached(priority: .userInitiated) {
                 defer {
                     self.lock.withLock {
                         self.threadAlive = false
                     }
-                    verboseLog("[minimuxer] mount thread stopped")
+                    verboseLog("[minimuxer] mount-thread: stopped")
                 }
+                verboseLog("[minimuxer] mount-thread: started")
+
                 while !self.dmgMounted {
-                    Thread.sleep(forTimeInterval: 1.0)
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard (try? DeviceEndpoint.shared.ip()) != nil else {
+                        continue
+                    }
                     do {
                         try RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
                         verboseLog("[minimuxer] DDI mounted successfully")
