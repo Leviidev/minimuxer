@@ -73,7 +73,7 @@ public class LockDownJIT: JITProvider {
             let result = rustBridgeDebugAppPost17(appId, muxerAddr: muxerAddr, deviceIp: try DeviceEndpoint.shared.ip())
             if result != 0 {
                 switch result {
-                case 1: throw MinimuxerError.NoConnection
+                case 1: throw MinimuxerError.connectionError
                 case 2: throw MinimuxerError.CreateCoreDevice
                 case 3: throw MinimuxerError.CreateSoftwareTunnel
                 case 4: throw MinimuxerError.Connect

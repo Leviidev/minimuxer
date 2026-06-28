@@ -42,14 +42,14 @@ public struct Minimuxer {
         IfaceScanner.shared.bindTunnelConfig(binding)
     }
     
-    public static func ready() -> Bool {
+    public static func ready() -> Result<Bool, MinimuxerError> {
         
         let deviceIP: String
         do {
             deviceIP = try DeviceEndpoint.shared.ip()
         } catch {
             debugLog("[minimuxer] minimuxer not ready: device endpoint not initialized")
-            return false
+            return .failure(MinimuxerError.connectionError)
         }
         
         let deviceConnection = testDeviceConnection(ifaddr: deviceIP)
@@ -63,7 +63,7 @@ public struct Minimuxer {
                 "started=\(Muxer.started) " +
                 "ready=\(Muxer.usbmuxdReady)"
             )
-            return deviceConnection
+            return deviceConnection ? .success(.true) : .failure(MinimuxerError.connectionError)
         }
         
         // continue with lockdown validation
@@ -84,7 +84,7 @@ public struct Minimuxer {
                 "started=\(Muxer.started) " +
                 "ready=\(Muxer.usbmuxdReady)"
             )
-            return false
+            return .failure(MinimuxerError.connectionError)
         }
         
         if #available(iOS 26.4, *) {
@@ -92,7 +92,7 @@ public struct Minimuxer {
                 debugLog("[minimuxer] WARN: VPN subnet not patched")
             }
         }
-        return true
+        return .success(.true)
     }
 
     public static var isLoggingEnabled = true
@@ -116,7 +116,7 @@ public struct Minimuxer {
             debugLog("[minimuxer] ERROR: minimuxer has not started!")
             return nil
         }
-        guard ready() else {
+        guard case .success(let isReady) = ready(), isReady else {
             debugLog("[minimuxer] ERROR: minimuxer is not ready!")
             return nil
         }
@@ -230,7 +230,7 @@ public struct Minimuxer {
         
         switch status {
             case .ready:
-                if let co = continuation, ready() {
+                if let co = continuation, case .success(let isReady) = ready(), isReady {
                     continuation = nil
                     co.resume(returning: ())
                 }

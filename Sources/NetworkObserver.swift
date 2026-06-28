@@ -89,4 +89,24 @@ public final class NetworkObserver {
         verboseLog("[minimuxer] [net] monitor stopped")
         return true
     }
+    
+    var isWifiSatisfied: Bool {
+        let path = monitor.currentPath
+        return path.status == .satisfied && path.usesInterfaceType(.wifi)
+    }
+    
+    var isWiredSatisfied: Bool {
+        let path = monitor.currentPath
+        return path.status == .satisfied && path.usesInterfaceType(.wiredEthernet)
+    }
+    
+    var isBridgeSatisfied: Bool {
+        let path = monitor.currentPath
+        if path.status == .satisfied && path.usesInterfaceType(.other) {
+            return true
+        }
+        return IfaceScanner.shared.interfaces.contains { info in
+            info.name.lowercased().contains("bridge") || info.name.lowercased().contains("ap")
+        }
+    }
 }

@@ -11,8 +11,22 @@ import Foundation
 public enum MinimuxerError: Error, Equatable {
     case NoDevice
     case NoConnection
+    case NoVPN
     case PairingFile
     case RestartAlreadyInProgressError
+
+    public static var connectionError: MinimuxerError {
+        #if targetEnvironment(simulator)
+        return .NoVPN
+        #else
+        let net = NetworkObserver.shared
+        if net.isWifiSatisfied || net.isWiredSatisfied || net.isBridgeSatisfied {
+            return .NoVPN
+        } else {
+            return .NoConnection
+        }
+        #endif
+    }
 
     case CreateDebug
     case CreateInstproxy
@@ -59,6 +73,7 @@ extension MinimuxerError: CustomStringConvertible {
         switch self {
         case .NoDevice: return "NoDevice"
         case .NoConnection: return "NoConnection"
+        case .NoVPN: return "NoVPN"
         case .PairingFile: return "PairingFile"
         case .RestartAlreadyInProgressError: return "RestartAlreadyInProgressError"
         case .CreateDebug: return "CreateDebug"

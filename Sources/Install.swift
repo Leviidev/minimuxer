@@ -50,7 +50,7 @@ public class LockDownInstall: InstallProvider {
         verboseLog("[minimuxer] AFC: verifying device connectivity at \(deviceIP)...")
         guard Minimuxer.testDeviceConnection(ifaddr: deviceIP) else {
             debugLog("[minimuxer] ERROR: Device not reachable before AFC start")
-            throw MinimuxerError.NoConnection
+            throw MinimuxerError.connectionError
         }
         verboseLog("[minimuxer] AFC: device reachable, fetching device handle")
 

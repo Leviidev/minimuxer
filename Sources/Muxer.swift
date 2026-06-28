@@ -229,7 +229,7 @@ public class Muxer {
     // libimobiledevice actually needs from us:
     private static func handlePacket(_ packet: RawPacket, fd: Int32) throws -> [String: Any] {
         guard let messageType = packet.plist["MessageType"] as? String else {
-            throw MinimuxerError.NoConnection
+            throw MinimuxerError.connectionError
         }
 
         verboseLog("[minimuxer] usbmux message: \(messageType)")
@@ -268,7 +268,7 @@ public class Muxer {
 
             default:
                 debugLog("[minimuxer] WARN: unknown message type: \(messageType)")
-                throw MinimuxerError.NoConnection
+                throw MinimuxerError.connectionError
         }
     }
     

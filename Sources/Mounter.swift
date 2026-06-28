@@ -194,7 +194,7 @@ public class LockDownMounter: MounterProvider {
         } else {
             debugLog("[minimuxer] ERROR: Failed to mount DDI (code \(result))")
             switch result {
-                case 1: throw MinimuxerError.NoConnection
+                case 1: throw MinimuxerError.connectionError
                 case 4: throw MinimuxerError.CreateLockdown
                 case 5: throw MinimuxerError.GetLockdownValue
                 case 6: throw MinimuxerError.ImageLookup
