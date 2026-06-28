@@ -44,33 +44,33 @@ public class Install {
 
 public class LockDownInstall: InstallProvider {
     public func yeetAppAfc(bundleId: String, ipaBytes: Data) throws {
-        print("[minimuxer] Yeeting IPA for bundle ID: \(bundleId)")
+        verboseLog("[minimuxer] Yeeting IPA for bundle ID: \(bundleId)")
 
         let deviceIP = try DeviceEndpoint.shared.ip()
-        print("[minimuxer] AFC: verifying device connectivity at \(deviceIP)...")
+        verboseLog("[minimuxer] AFC: verifying device connectivity at \(deviceIP)...")
         guard Minimuxer.testDeviceConnection(ifaddr: deviceIP) else {
-            print("[minimuxer] ERROR: Device not reachable before AFC start")
+            debugLog("[minimuxer] ERROR: Device not reachable before AFC start")
             throw MinimuxerError.NoConnection
         }
-        print("[minimuxer] AFC: device reachable, fetching device handle")
+        verboseLog("[minimuxer] AFC: device reachable, fetching device handle")
 
         let device = try Device.getFirstDevice()
-        print("[minimuxer] AFC: creating AFC client...")
+        verboseLog("[minimuxer] AFC: creating AFC client...")
         guard let afc = RustAfc.connect(device: device.internalInstance, label: "minimuxer") else {
-            print("[minimuxer] ERROR: Could not start AFC service")
+            debugLog("[minimuxer] ERROR: Could not start AFC service")
             throw MinimuxerError.CreateAfc
         }
-        print("[minimuxer] AFC: client created successfully")
+        verboseLog("[minimuxer] AFC: client created successfully")
 
         let pkg = MuxerConstants.pkgPath
         let appDir = "./\(pkg)/\(bundleId)"
         mkdirP(appDir, afc: afc)
 
         if !afc.writeFile(path: "\(appDir)/app.ipa", data: ipaBytes) {
-            print("[minimuxer] ERROR: Unable to write IPA to device")
+            debugLog("[minimuxer] ERROR: Unable to write IPA to device")
             throw MinimuxerError.RwAfc
         }
-        print("[minimuxer] Successfully staged IPA")
+        verboseLog("[minimuxer] Successfully staged IPA")
     }
     
     private func mkdirP(_ path: String, afc: RustAfc) {
@@ -82,34 +82,34 @@ public class LockDownInstall: InstallProvider {
     }
 
     public func installIpa(bundleId: String) throws {
-        print("[minimuxer] Installing app for bundle ID: \(bundleId)")
+        verboseLog("[minimuxer] Installing app for bundle ID: \(bundleId)")
         let device = try Device.getFirstDevice()
         guard let inst = RustInstProxy.connect(device: device.internalInstance, label: "ideviceinstaller") else {
-            print("[minimuxer] ERROR: Unable to start instproxy")
+            debugLog("[minimuxer] ERROR: Unable to start instproxy")
             throw MinimuxerError.CreateInstproxy
         }
         let path = "./\(MuxerConstants.pkgPath)/\(bundleId)/app.ipa"
-        print("[minimuxer] Installing...")
+        verboseLog("[minimuxer] Installing...")
         if !inst.install(path: path) {
-            print("[minimuxer] ERROR: Install failed")
+            debugLog("[minimuxer] ERROR: Install failed")
             throw MinimuxerError.InstallApp("Failed to install")
         }
-        print("[minimuxer] Install done!")
+        verboseLog("[minimuxer] Install done!")
     }
 
     public func removeApp(bundleId: String) throws {
-        print("[minimuxer] Removing app: \(bundleId)")
+        verboseLog("[minimuxer] Removing app: \(bundleId)")
         let device = try Device.getFirstDevice()
         guard let inst = RustInstProxy.connect(device: device.internalInstance, label: "minimuxer-remove-app") else {
-            print("[minimuxer] ERROR: Unable to start instproxy")
+            debugLog("[minimuxer] ERROR: Unable to start instproxy")
             throw MinimuxerError.CreateInstproxy
         }
-        print("[minimuxer] Removing...")
+        verboseLog("[minimuxer] Removing...")
         if !inst.uninstall(bundleId: bundleId) {
-            print("[minimuxer] ERROR: Unable to uninstall app")
+            debugLog("[minimuxer] ERROR: Unable to uninstall app")
             throw MinimuxerError.UninstallApp
         }
-        print("[minimuxer] Remove done!")
+        verboseLog("[minimuxer] Remove done!")
     }
 }
 

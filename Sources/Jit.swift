@@ -42,25 +42,25 @@ public class JIT {
 
 public class LockDownJIT: JITProvider {
     public func debugApp(appId: String) throws {
-        print("[minimuxer] Debugging app ID: \(appId)")
+        verboseLog("[minimuxer] Debugging app ID: \(appId)")
         let device = try Device.getFirstDevice()
 
         let lockdown: RustLockdown
         switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
         case .success(let ld): lockdown = ld
         case .error(let err):
-            print("[minimuxer] ERROR: Failed to connect to lockdown: \(err)")
+            debugLog("[minimuxer] ERROR: Failed to connect to lockdown: \(err)")
             throw err.contains("InvalidConf") ? MinimuxerError.PairingFile : MinimuxerError.CreateLockdown
         }
 
         guard let versionStr = lockdown.getValue(key: "ProductVersion") else {
-            print("[minimuxer] ERROR: Failed to get product version from lockdown")
+            debugLog("[minimuxer] ERROR: Failed to get product version from lockdown")
             throw MinimuxerError.GetLockdownValue
         }
 
         guard let majorStr = versionStr.split(separator: ".").first,
               let major = Int(majorStr) else {
-            print("[minimuxer] ERROR: Failed to get product version from plist")
+            debugLog("[minimuxer] ERROR: Failed to get product version from plist")
             throw MinimuxerError.InvalidProductVersion
         }
 
@@ -68,7 +68,7 @@ public class LockDownJIT: JITProvider {
             try debugPre17(device: device, appId: appId)
         } else {
             // iOS 17+ uses CoreDeviceProxy + DVT + DebugProxy via async Rust
-            print("[minimuxer] iOS \(major) detected, using post-17 JIT path")
+            verboseLog("[minimuxer] iOS \(major) detected, using post-17 JIT path")
             let muxerAddr = "127.0.0.1:\(MuxerConstants.usbmuxdPort)"
             let result = rustBridgeDebugAppPost17(appId, muxerAddr: muxerAddr, deviceIp: try DeviceEndpoint.shared.ip())
             if result != 0 {
@@ -92,18 +92,18 @@ public class LockDownJIT: JITProvider {
 
     private func debugPre17(device: Device, appId: String) throws {
         guard let debugServer = RustDebugserver.connect(device: device.internalInstance, label: "minimuxer") else {
-            print("[minimuxer] ERROR: Failed to start debug server")
+            debugLog("[minimuxer] ERROR: Failed to start debug server")
             throw MinimuxerError.CreateDebug
         }
 
         guard let instProxy = RustInstProxy.connect(device: device.internalInstance, label: "minimuxer") else {
-            print("[minimuxer] ERROR: Failed to create instproxy client")
+            debugLog("[minimuxer] ERROR: Failed to create instproxy client")
             throw MinimuxerError.CreateInstproxy
         }
 
         // Lookup app info
         guard let lookupResult = instProxy.lookup(appId: appId) else {
-            print("[minimuxer] ERROR: App not found: \(appId)")
+            debugLog("[minimuxer] ERROR: App not found: \(appId)")
             throw MinimuxerError.LookupApps
         }
 
@@ -111,41 +111,41 @@ public class LockDownJIT: JITProvider {
         guard let plistData = lookupResult.data(using: .utf8),
               let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
               let container = plist["Container"] as? String else {
-            print("[minimuxer] ERROR: Unable to find container for app")
+            debugLog("[minimuxer] ERROR: Unable to find container for app")
             throw MinimuxerError.FindApp
         }
-        print("[minimuxer] Working directory: \(container)")
+        verboseLog("[minimuxer] Working directory: \(container)")
 
         // Get bundle path
         guard let bundlePath = instProxy.getPathForBundleIdentifier(bundleId: appId) else {
-            print("[minimuxer] ERROR: Error getting path for bundle identifier")
+            debugLog("[minimuxer] ERROR: Error getting path for bundle identifier")
             throw MinimuxerError.BundlePath
         }
-        print("[minimuxer] Found bundle path: \(bundlePath)")
+        verboseLog("[minimuxer] Found bundle path: \(bundlePath)")
 
         _ = debugServer.sendCommand("QSetMaxPacketSize:1024")
         _ = debugServer.sendCommand("QSetWorkingDir:\(container)")
 
         if !debugServer.setArgv([bundlePath, bundlePath]) {
-            print("[minimuxer] ERROR: Error setting argv")
+            debugLog("[minimuxer] ERROR: Error setting argv")
             throw MinimuxerError.Argv
         }
 
         _ = debugServer.sendCommand("qLaunchSuccess")
-        print("[minimuxer] Detaching debugserver")
+        verboseLog("[minimuxer] Detaching debugserver")
         _ = debugServer.sendCommand("D")
     }
 
     public func attachDebugger(pid: UInt32) throws {
-        print("[minimuxer] Debugging process ID: \(pid)")
+        verboseLog("[minimuxer] Debugging process ID: \(pid)")
         let device = try Device.getFirstDevice()
         guard let debugServer = RustDebugserver.connect(device: device.internalInstance, label: "minimuxer") else {
-            print("[minimuxer] ERROR: Failed to start debug server")
+            debugLog("[minimuxer] ERROR: Failed to start debug server")
             throw MinimuxerError.CreateDebug
         }
 
         let command = "vAttach;\(String(format: "%08x", pid))"
-        print("[minimuxer] Sending command: \(command)")
+        verboseLog("[minimuxer] Sending command: \(command)")
         _ = debugServer.sendCommand(command)
         _ = debugServer.sendCommand("D")
     }

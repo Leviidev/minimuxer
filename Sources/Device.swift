@@ -25,7 +25,7 @@ public final class Device {
             Thread.sleep(forTimeInterval: Double(sleep) / 1000.0)
             remaining = remaining >= UInt16(sleep) ? remaining - UInt16(sleep) : 0
         }
-        print("[minimuxer] ERROR: Couldn't fetch first device (timed out)")
+        debugLog("[minimuxer] ERROR: Couldn't fetch first device (timed out)")
         throw MinimuxerError.NoDevice
     }
 

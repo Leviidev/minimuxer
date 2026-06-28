@@ -25,39 +25,39 @@ public final class NetworkObserver {
         defer { lock.unlock() }
 
         guard !started else {
-            print("[minimuxer] [net] monitor already started")
+            verboseLog("[minimuxer] [net] monitor already started")
             return false
         }
 
         monitor.pathUpdateHandler = { [weak self] path in
-            print("[minimuxer] [net] path changed, status:", path.status)
+            verboseLog("[minimuxer] [net] path changed, status: \(path.status)")
             guard path.status == .satisfied else { return }
             self?.refreshEndpoint()
         }
 
         monitor.start(queue: queue)
         started = true
-        print("[minimuxer] [net] monitor started")
+        verboseLog("[minimuxer] [net] monitor started")
         return true
     }
     
     public func refreshEndpoint() {
-        print("[minimuxer] [net] refreshing interfaces list and peers")
+        verboseLog("[minimuxer] [net] refreshing interfaces list and peers")
         IfaceScanner.shared.refresh()
 
-        print("[minimuxer] [net] retrive the first vpn interface info")
+        verboseLog("[minimuxer] [net] retrive the first vpn interface info")
         if let info = try? IfaceScanner.shared.probableVPN() {
-            print("[minimuxer] [net] vpn:", info, "peer:", info.peerIP ?? "nil")
+            verboseLog("[minimuxer] [net] vpn: \(info) peer: \(info.peerIP ?? "nil")")
 
             if let peer = info.peerIP {
-                print("[minimuxer] [net] update the device endpoint with discovered peer on the vpn interface")
+                verboseLog("[minimuxer] [net] update the device endpoint with discovered peer on the vpn interface")
                 DeviceEndpoint.shared.update(peer)
                 Muxer.notifyDeviceAttached(deviceIP: peer)
                 if !Muxer.isrppairing {
                     Heartbeat.start()
                 }
             } else {
-                print("[minimuxer] [net] peer not available for", info.name)
+                verboseLog("[minimuxer] [net] peer not available for \(info.name)")
                 DeviceEndpoint.shared.clear()
                 Muxer.notifyDeviceDetached()
                 if !Muxer.isrppairing {
@@ -65,7 +65,7 @@ public final class NetworkObserver {
                 }
             }
         } else {
-            print("[minimuxer] [net] no SideVPN endpoint detected")
+            verboseLog("[minimuxer] [net] no SideVPN endpoint detected")
             DeviceEndpoint.shared.clear()
             Muxer.notifyDeviceDetached()
             if !Muxer.isrppairing {
@@ -80,13 +80,13 @@ public final class NetworkObserver {
         defer { lock.unlock() }
 
         guard started else {
-            print("[minimuxer] [net] monitor already stopped")
+            verboseLog("[minimuxer] [net] monitor already stopped")
             return false
         }
 
         monitor.cancel()
         started = false
-        print("[minimuxer] [net] monitor stopped")
+        verboseLog("[minimuxer] [net] monitor stopped")
         return true
     }
 }

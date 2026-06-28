@@ -53,7 +53,7 @@ public struct Minimuxer {
             }
 
         } catch {
-            print("[minimuxer] minimuxer not ready: device endpoint not initialized")
+            debugLog("[minimuxer] minimuxer not ready: device endpoint not initialized")
             return false
         }
         
@@ -70,7 +70,7 @@ public struct Minimuxer {
             deviceExists = false
         }
         guard deviceConnection, deviceExists, Heartbeat.lastBeatSuccessful, Mounter.dmgMounted, Muxer.started, Muxer.usbmuxdReady else {
-            print(
+            verboseLog(
                 "minimuxer not ready: " +
                 "conn=\(deviceConnection) " +
                 "dev=\(deviceExists) " +
@@ -84,14 +84,17 @@ public struct Minimuxer {
         
         if #available(iOS 26.4, *) {
             if !IfaceScanner.shared.vpnPatched() {
-                print("[minimuxer] WARN: VPN subnet not patched")
+                debugLog("[minimuxer] WARN: VPN subnet not patched")
             }
         }
         return true
     }
 
-    public static func setDebug(_ debug: Bool) {
-        rustBridgeSetDebug(debug)
+    public static var isLoggingEnabled = true
+
+    public static func setLogging(_ enabled: Bool) {
+        rustBridgeSetDebug(enabled)
+        Minimuxer.isLoggingEnabled = enabled
     }
 
     public static func start(pairingFile: String, logPath: String) throws {
@@ -99,6 +102,7 @@ public struct Minimuxer {
     }
 
     public static func startWithLogger(pairingFile: String, logPath: String, isConsoleLoggingEnabled: Bool) throws {
+        Minimuxer.isLoggingEnabled = isConsoleLoggingEnabled
         try Muxer.start(pairingFile: pairingFile, logPath: logPath)
     }
 
@@ -107,9 +111,9 @@ public struct Minimuxer {
     }
 
     public static func fetchUDID() -> String? {
-        print("[minimuxer] Getting UDID for first device")
+        verboseLog("[minimuxer] Getting UDID for first device")
         guard Muxer.started else {
-            print("[minimuxer] ERROR: minimuxer has not started!")
+            debugLog("[minimuxer] ERROR: minimuxer has not started!")
             return nil
         }
         let udid: String?
@@ -120,9 +124,9 @@ public struct Minimuxer {
         }
 
         if let udid = udid {
-            print("[minimuxer] UDID: \(udid)")
+            verboseLog("[minimuxer] UDID: \(udid)")
         } else {
-            print("[minimuxer] ERROR: Failed to get UDID")
+            debugLog("[minimuxer] ERROR: Failed to get UDID")
         }
         return udid
     }
@@ -188,12 +192,12 @@ public struct Minimuxer {
         stateLock.lock()
         guard continuation == nil else {
             stateLock.unlock()
-            print("[minimuxer] Restart already in progress, ignoring request.")
+            verboseLog("[minimuxer] Restart already in progress, ignoring request.")
             throw MinimuxerError.RestartAlreadyInProgressError
         }
         stateLock.unlock()
 
-        print("[minimuxer] Restarting services...")
+        verboseLog("[minimuxer] Restarting services...")
         
         try await withCheckedThrowingContinuation { (co: CheckedContinuation<Void, Error>) in
             stateLock.lock()
@@ -247,5 +251,17 @@ public struct Minimuxer {
 
     public static func dumpProfiles(docsPath: String) throws -> String {
         return try Provision.dumpProfiles(docsPath: docsPath)
+    }
+}
+
+@inline(__always)
+func debugLog(_ text: String) {
+    print(text)
+}
+
+@inline(__always)
+func verboseLog(_ text: String) {
+    if Minimuxer.isLoggingEnabled {
+        print(text)
     }
 }

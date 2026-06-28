@@ -30,36 +30,36 @@ public class Muxer {
     private static var currentEvent: String?
 
     public static func retargetUsbmuxdAddr() {
-        print("[minimuxer] unsetenv(USBMUXD_SOCKET_ADDRESS)")
+        verboseLog("[minimuxer] unsetenv(USBMUXD_SOCKET_ADDRESS)")
         unsetenv(MuxerConstants.usbmuxdEnvKey)
-        print("[minimuxer] setenv(USBMUXD_SOCKET_ADDRESS, \(MuxerConstants.usbmuxdSocket))")
+        verboseLog("[minimuxer] setenv(USBMUXD_SOCKET_ADDRESS, \(MuxerConstants.usbmuxdSocket))")
         setenv(MuxerConstants.usbmuxdEnvKey, MuxerConstants.usbmuxdSocket, 1)
         let value = String(cString: getenv(MuxerConstants.usbmuxdEnvKey))
-        print("[minimuxer] getenv(USBMUXD_SOCKET_ADDRESS) =", value)
+        verboseLog("[minimuxer] getenv(USBMUXD_SOCKET_ADDRESS) = \(value)")
     }
 
     public static func start(pairingFile: String, logPath: String) throws {
         if started {
-            print("[minimuxer] Already started minimuxer, skipping")
+            verboseLog("[minimuxer] Already started minimuxer, skipping")
             return
         }
 
         guard let pairingData = pairingFile.data(using: .utf8),
               let pairingDict = try? PropertyListSerialization.propertyList(from: pairingData, options: [], format: nil) as? [String: Any]
         else {
-            print("[minimuxer] ERROR: Failed to parse pairing file")
+            debugLog("[minimuxer] ERROR: Failed to parse pairing file")
             throw MinimuxerError.PairingFile
         }
 
-        print("[minimuxer] DEBUG: loaded pairing file keys: \(pairingDict.keys)")
+        verboseLog("[minimuxer] DEBUG: loaded pairing file keys: \(pairingDict.keys)")
 
         if let _ = pairingDict["private_key"] as? Data {
-            print("[minimuxer] INFO: RPPairing file detected")
+            verboseLog("[minimuxer] INFO: RPPairing file detected")
             isrppairing = true
         } else if let _ = pairingDict["UDID"] as? String {
-            print("[minimuxer] INFO: Lockdown pairing file detected")
+            verboseLog("[minimuxer] INFO: Lockdown pairing file detected")
         } else {
-            print("[minimuxer] ERROR: Pairing file missing UDID")
+            debugLog("[minimuxer] ERROR: Pairing file missing UDID")
             throw MinimuxerError.PairingFile
         }
 
@@ -67,7 +67,7 @@ public class Muxer {
         cleanPairingDict.removeValue(forKey: "UDID")
 
         guard let pairingXml = try? PropertyListSerialization.data(fromPropertyList: cleanPairingDict, format: .xml, options: 0) else {
-            print("[minimuxer] ERROR: Failed to serialize clean pairing file")
+            debugLog("[minimuxer] ERROR: Failed to serialize clean pairing file")
             throw MinimuxerError.PairingFile
         }
 
@@ -83,7 +83,7 @@ public class Muxer {
             // Heartbeat is started/stopped by NetworkObserver when VPN peer changes
             // Heartbeat.startBeat()
         }
-        print("[minimuxer] minimuxer has started!")
+        verboseLog("[minimuxer] minimuxer has started!")
     }
 
     // MARK: - Listener
@@ -94,7 +94,7 @@ public class Muxer {
     // device, read the pairing record, and open services (AFC, lockdown, etc.).
     private static func listenLoop() {
         while true {
-            print("[minimuxer] Starting listener")
+            verboseLog("[minimuxer] Starting listener")
 
             let fd = socket(AF_INET, SOCK_STREAM, 0)
             guard fd >= 0 else {
@@ -118,17 +118,17 @@ public class Muxer {
             }
 
             let value = String(cString: getenv(MuxerConstants.usbmuxdEnvKey))
-            print("[minimuxer] muxer: (ENV) USBMUXD_SOCKET_ADDRESS =", value)
+            verboseLog("[minimuxer] muxer: (ENV) USBMUXD_SOCKET_ADDRESS = \(value)")
 
             guard bindResult == 0, listen(fd, 16) == 0 else {
-                print("[minimuxer] WARN: Failed to bind/listen")
+                debugLog("[minimuxer] WARN: Failed to bind/listen")
                 close(fd)
                 usbmuxdReady = false
                 Thread.sleep(forTimeInterval: 1)
                 continue
             }
 
-            print("[minimuxer] Bound successfully to \(MuxerConstants.usbmuxdHost):\(MuxerConstants.usbmuxdPort)")
+            verboseLog("[minimuxer] Bound successfully to \(MuxerConstants.usbmuxdHost):\(MuxerConstants.usbmuxdPort)")
             usbmuxdReady = true
 
             // accept loop — runs until socket dies
@@ -139,9 +139,9 @@ public class Muxer {
                 let clientFd = accept(fd, &clientAddr, &addrLen)
                 guard clientFd >= 0 else {
                     consecutiveErrors += 1
-                    print("[minimuxer] WARN: accept() failed (\(consecutiveErrors)): \(String(cString: strerror(errno)))")
+                    debugLog("[minimuxer] WARN: accept() failed (\(consecutiveErrors)): \(String(cString: strerror(errno)))")
                     if consecutiveErrors > 0 {
-                        print("[minimuxer] ERROR: accept() repeatedly failing, restarting socket")
+                        debugLog("[minimuxer] ERROR: accept() repeatedly failing, restarting socket")
                         break  // break inner → outer loop recreates socket
                     }
                     Thread.sleep(forTimeInterval: 0.1)
@@ -158,7 +158,7 @@ public class Muxer {
             // socket died — close and let outer loop restart
             close(fd)
             usbmuxdReady = false
-            print("[minimuxer] listener restarting...")
+            verboseLog("[minimuxer] listener restarting...")
             Thread.sleep(forTimeInterval: 1)
         }
     }
@@ -232,7 +232,7 @@ public class Muxer {
             throw MinimuxerError.NoConnection
         }
 
-        print("[minimuxer] usbmux message:", messageType)
+        verboseLog("[minimuxer] usbmux message: \(messageType)")
 
         switch messageType {
             case "ListDevices":
@@ -267,7 +267,7 @@ public class Muxer {
                 ]
 
             default:
-                print("[minimuxer] WARN: unknown message type:", messageType)
+                debugLog("[minimuxer] WARN: unknown message type: \(messageType)")
                 throw MinimuxerError.NoConnection
         }
     }
@@ -302,7 +302,7 @@ public class Muxer {
     // Encodes an IPv4 address into the 152-byte sockaddr_storage layout that
     // libusbmuxd expects in the NetworkAddress field of the device properties.
     private static func convertIp(_ ip: String) -> [UInt8] {
-        // print("[minimuxer] DEBUG: convertIp called for ip: \(ip)")
+        // verboseLog("[minimuxer] DEBUG: convertIp called for ip: \(ip)")
         var data = [UInt8](repeating: 0, count: 152)
         var addr = in_addr()
         if inet_pton(AF_INET, ip, &addr) == 1 {
@@ -310,7 +310,7 @@ public class Muxer {
             data[0] = 16; data[1] = 0x02
             let ipBytes = withUnsafeBytes(of: &addr.s_addr) { Array($0) }
             for (i, byte) in ipBytes.enumerated() { data[4 + i] = byte }
-            // print("[minimuxer] DEBUG: convertIp output bytes 0..7: \(data[0...7])")
+            // verboseLog("[minimuxer] DEBUG: convertIp output bytes 0..7: \(data[0...7])")
         }
         return data
     }

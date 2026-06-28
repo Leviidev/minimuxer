@@ -130,7 +130,7 @@ final class IfaceScanner {
         tunnelConfigCache?.setFakeIP(peerIP)
         tunnelConfigCache?.setOverrideEffective(isOverrideActive)
         
-        print("""
+        verboseLog("""
         [minimuxer] [iface] rescan routes
           • interfaces: \(interfaces.count)
           • vpn host: \(vpnIface?.hostIP ?? "nil")
@@ -148,7 +148,7 @@ final class IfaceScanner {
 
     // MARK: scan
     private static func scan() -> Set<NetInfo> {
-        print("[minimuxer] [iface] scan requested...")
+        verboseLog("[minimuxer] [iface] scan requested...")
 
         var result = Set<NetInfo>()
         var head: UnsafeMutablePointer<ifaddrs>? = nil
@@ -164,14 +164,14 @@ final class IfaceScanner {
             let active = (flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING)
 
             if ipv4, active, let info = NetInfo(ifa: e) {
-                print("[minimuxer] [iface]", info)
+                verboseLog("[minimuxer] [iface] \(info)")
                 result.insert(info)
             }
 
             cur = e.ifa_next
         }
 
-        print("[minimuxer] [iface] total:", result.count)
+        verboseLog("[minimuxer] [iface] total: \(result.count)")
         return result
     }
     
@@ -180,14 +180,14 @@ final class IfaceScanner {
         if let cachedDeviceIP = cachedOverrideFakeIP {
             let reachable = Minimuxer.testDeviceConnection(ifaddr: cachedDeviceIP)
             if reachable {
-                print("[minimuxer] [iface] override peer reachable at:", cachedDeviceIP)
+                verboseLog("[minimuxer] [iface] override peer reachable at: \(cachedDeviceIP)")
                 return cachedDeviceIP
             } else {
-                print("[minimuxer] [iface] override peer NOT reachable at:", cachedDeviceIP)
+                verboseLog("[minimuxer] [iface] override peer NOT reachable at: \(cachedDeviceIP)")
                 return nil
             }
         }
-        print("[minimuxer] [iface] no override peer configured")
+        verboseLog("[minimuxer] [iface] no override peer configured")
         return nil
     }
 

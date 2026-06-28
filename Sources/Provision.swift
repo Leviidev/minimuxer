@@ -44,45 +44,45 @@ public class Provision {
 
 public class LockDownProvision: ProvisionProvider {
     public func installProvisioningProfile(profile: Data) throws {
-        print("[minimuxer] Installing provisioning profile")
+        verboseLog("[minimuxer] Installing provisioning profile")
         let device = try Device.getFirstDevice()
         guard let misagent = RustMisagent.connect(device: device.internalInstance, label: "minimuxer-install-prov") else {
-            print("[minimuxer] ERROR: Failed to start misagent client")
+            debugLog("[minimuxer] ERROR: Failed to start misagent client")
             throw MinimuxerError.CreateMisagent
         }
 
         if !misagent.install(profileData: profile) {
-            print("[minimuxer] ERROR: Unable to install provisioning profile")
+            debugLog("[minimuxer] ERROR: Unable to install provisioning profile")
             throw MinimuxerError.ProfileInstall
         }
-        print("[minimuxer] Successfully installed provisioning profile!")
+        verboseLog("[minimuxer] Successfully installed provisioning profile!")
     }
 
     public func removeProvisioningProfile(id: String) throws {
-        print("[minimuxer] Removing profile with ID: \(id)")
+        verboseLog("[minimuxer] Removing profile with ID: \(id)")
         let device = try Device.getFirstDevice()
         guard let misagent = RustMisagent.connect(device: device.internalInstance, label: "minimuxer-install-prov") else {
-            print("[minimuxer] ERROR: Failed to start misagent client")
+            debugLog("[minimuxer] ERROR: Failed to start misagent client")
             throw MinimuxerError.CreateMisagent
         }
 
         if !misagent.remove(profileId: id) {
-            print("[minimuxer] ERROR: Unable to remove provisioning profile")
+            debugLog("[minimuxer] ERROR: Unable to remove provisioning profile")
             throw MinimuxerError.ProfileRemove
         }
-        print("[minimuxer] Successfully removed profile")
+        verboseLog("[minimuxer] Successfully removed profile")
     }
 
     public func dumpProfiles(docsPath: String) throws -> String {
-        print("[minimuxer] Dumping profiles")
+        verboseLog("[minimuxer] Dumping profiles")
         let device = try Device.getFirstDevice()
         guard let misagent = RustMisagent.connect(device: device.internalInstance, label: "minimuxer-install-prov") else {
-            print("[minimuxer] ERROR: Failed to start misagent client")
+            debugLog("[minimuxer] ERROR: Failed to start misagent client")
             throw MinimuxerError.CreateMisagent
         }
 
         guard let rawPlistStr = misagent.copyAll() else {
-            print("[minimuxer] ERROR: Unable to copy profiles from misagent")
+            debugLog("[minimuxer] ERROR: Unable to copy profiles from misagent")
             throw MinimuxerError.ProfileRemove
         }
 
@@ -115,7 +115,7 @@ public class LockDownProvision: ProvisionProvider {
                 try profileData.write(to: URL(fileURLWithPath: "\(dumpDir)/unknown_\(i).mobileprovision"))
             }
         }
-        print("[minimuxer] Profile dump success")
+        verboseLog("[minimuxer] Profile dump success")
         return dumpDir
     }
 }

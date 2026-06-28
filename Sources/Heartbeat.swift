@@ -28,7 +28,7 @@ public class Heartbeat {
         threadAlive = true
         lock.unlock()
 
-        print("[minimuxer] Starting heartbeat thread...")
+        verboseLog("[minimuxer] Starting heartbeat thread...")
         Task.detached(priority: .userInitiated) {
             defer {
                 lock.withLock{
@@ -36,17 +36,17 @@ public class Heartbeat {
                     running = false
                 }
                 lastBeatSuccessful = false
-                print("[minimuxer] heartbeat-thread: stopped")
+                verboseLog("[minimuxer] heartbeat-thread: stopped")
             }
 
-            print("[minimuxer] heartbeat-thread: started")
+            verboseLog("[minimuxer] heartbeat-thread: started")
 
             while !Muxer.usbmuxdReady {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 let ts = ISO8601DateFormatter().string(from: Date())
-                print("[\(ts)] [minimuxer] heartbeat-thread: Waiting for usbmuxd to be ready...")
+                verboseLog("[\(ts)] [minimuxer] heartbeat-thread: Waiting for usbmuxd to be ready...")
             }
-            print("[minimuxer] heartbeat-thread: usbmuxd is ready")
+            verboseLog("[minimuxer] heartbeat-thread: usbmuxd is ready")
 
             // outer loop
             while running {
@@ -54,7 +54,7 @@ public class Heartbeat {
                 do {
                     deviceIP = try DeviceEndpoint.shared.ip()
                 } catch {
-                    print("[minimuxer] heartbeat-thread: deviceIP unavailable")
+                    verboseLog("[minimuxer] heartbeat-thread: deviceIP unavailable")
                     lastBeatSuccessful = false
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     continue
@@ -62,18 +62,18 @@ public class Heartbeat {
                 
                 // verify tunnel/device reachability first
                 if !Minimuxer.testDeviceConnection(ifaddr: deviceIP) {
-                    print("[minimuxer] heartbeat-thread: device IP not reachable, waiting...")
+                    verboseLog("[minimuxer] heartbeat-thread: device IP not reachable, waiting...")
                     lastBeatSuccessful = false
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     continue
                 }
-                print("[minimuxer] heartbeat-thread: device IP reachable at: \(deviceIP)")
+                verboseLog("[minimuxer] heartbeat-thread: device IP reachable at: \(deviceIP)")
 
                 let device: Device
                 do {
                     device = try Device.getFirstDevice()
                 } catch {
-                    print("[minimuxer] heartbeat-thread: WARN: Could not query device from usbmuxd for heartbeat")
+                    debugLog("[minimuxer] heartbeat-thread: WARN: Could not query device from usbmuxd for heartbeat")
                     lastBeatSuccessful = false
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     continue
@@ -84,8 +84,8 @@ public class Heartbeat {
                     case .success: break
                     case .error(let err):
                         if err.contains("InvalidConf") {
-                            print("[minimuxer] heartbeat-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please redo-pairing for your device.")
-                            print("[minimuxer] heartbeat-thread: exiting due to invalid pairing")
+                            debugLog("[minimuxer] heartbeat-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please redo-pairing for your device.")
+                            verboseLog("[minimuxer] heartbeat-thread: exiting due to invalid pairing")
                             await Minimuxer.checkAndNotify(.failed(.heartbeat, MinimuxerError.PairingFile))
                             lastBeatSuccessful = false
                             lock.lock()
@@ -93,7 +93,7 @@ public class Heartbeat {
                             lock.unlock()
                             return
                         } else {
-                            print("[minimuxer] heartbeat-thread: WARN: Could not connect to lockdown for heartbeat: \(err)")
+                            debugLog("[minimuxer] heartbeat-thread: WARN: Could not connect to lockdown for heartbeat: \(err)")
                         }
                         lastBeatSuccessful = false
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -104,7 +104,7 @@ public class Heartbeat {
                 switch RustHeartbeat.connect(device: device.internalInstance, label: "minimuxer") {
                     case .success(let hb): heartbeat = hb
                     case .error(let err):
-                        print("[minimuxer] heartbeat-thread: ERROR: Failed to create heartbeat client: \(err)")
+                        debugLog("[minimuxer] heartbeat-thread: ERROR: Failed to create heartbeat client: \(err)")
                         lastBeatSuccessful = false
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
                         continue
@@ -113,7 +113,7 @@ public class Heartbeat {
                 // Inner loop: keep receiving and sending heartbeats
                 while running {
                    guard let plist = heartbeat.receive(timeoutMs: MuxerConstants.heartbeatTimeoutMs) else {
-                       print("[minimuxer] heartbeat-thread: ERROR: Heartbeat recv failed")
+                       debugLog("[minimuxer] heartbeat-thread: ERROR: Heartbeat recv failed")
                        lastBeatSuccessful = false
                        break
                    }
@@ -122,7 +122,7 @@ public class Heartbeat {
                         lastBeatSuccessful = true
                         await Minimuxer.checkAndNotify(.ready(.heartbeat))
                     } else {
-                        print("[minimuxer] heartbeat-thread: ERROR: Heartbeat send failed")
+                        debugLog("[minimuxer] heartbeat-thread: ERROR: Heartbeat send failed")
                         lastBeatSuccessful = false
                         break
                     }
@@ -138,6 +138,6 @@ public class Heartbeat {
         guard running else { return }
         running = false
         lastBeatSuccessful = false
-        print("[minimuxer] Heartbeat stop requested")
+        verboseLog("[minimuxer] Heartbeat stop requested")
     }
 }
