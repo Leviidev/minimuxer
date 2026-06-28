@@ -46,22 +46,27 @@ public struct Minimuxer {
         
         let deviceIP: String
         do {
-            if Muxer.isrppairing {
-                deviceIP = "10.7.0.1"
-            } else {
-                deviceIP = try DeviceEndpoint.shared.ip()
-            }
-
+            deviceIP = try DeviceEndpoint.shared.ip()
         } catch {
             debugLog("[minimuxer] minimuxer not ready: device endpoint not initialized")
             return false
         }
         
         let deviceConnection = testDeviceConnection(ifaddr: deviceIP)
+        // check if rrpairing first
         if Muxer.isrppairing {
-            return true
+            verboseLog(
+                "minimuxer not ready: " +
+                "conn=\(deviceConnection) " +
+                "hb=\(Heartbeat.lastBeatSuccessful) " +
+                "dmg=\(Mounter.dmgMounted) " +
+                "started=\(Muxer.started) " +
+                "ready=\(Muxer.usbmuxdReady)"
+            )
+            return deviceConnection
         }
         
+        // continue with lockdown validation
         let deviceExists: Bool
         do {
             _ = try Device.getFirstDevice()
@@ -109,6 +114,10 @@ public struct Minimuxer {
         verboseLog("[minimuxer] Getting UDID for first device")
         guard Muxer.started else {
             debugLog("[minimuxer] ERROR: minimuxer has not started!")
+            return nil
+        }
+        guard ready() else {
+            debugLog("[minimuxer] ERROR: minimuxer is not ready!")
             return nil
         }
         let udid: String?
