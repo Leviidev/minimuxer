@@ -283,14 +283,13 @@ public class RPMounter: MounterProvider {
 
     public func startAutoMounter(docsPath: String) {
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
-        let dmgDocsPath = "\(path)/DMG"
+        let dmgDocsPath = (path.hasSuffix("/") ? String(path.dropLast()) : path) + "/DMG"
 
         do {
+            try FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
             let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
             Thread.detachNewThread {
                 verboseLog("[minimuxer] Starting mount thread...")
-
-                try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
 
                 while !self.dmgMounted {
                     Thread.sleep(forTimeInterval: 1.0)
