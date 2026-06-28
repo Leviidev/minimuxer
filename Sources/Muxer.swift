@@ -38,7 +38,7 @@ public class Muxer {
         verboseLog("[minimuxer] getenv(USBMUXD_SOCKET_ADDRESS) = \(value)")
     }
 
-    public static func start(pairingFile: String, logPath: String) throws {
+    public static func start(pairingFile: String) throws {
         if started {
             verboseLog("[minimuxer] Already started minimuxer, skipping")
             return

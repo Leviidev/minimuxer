@@ -97,13 +97,8 @@ public struct Minimuxer {
         Minimuxer.isLoggingEnabled = enabled
     }
 
-    public static func start(pairingFile: String, logPath: String) throws {
-        try startWithLogger(pairingFile: pairingFile, logPath: logPath, isConsoleLoggingEnabled: true)
-    }
-
-    public static func startWithLogger(pairingFile: String, logPath: String, isConsoleLoggingEnabled: Bool) throws {
-        Minimuxer.isLoggingEnabled = isConsoleLoggingEnabled
-        try Muxer.start(pairingFile: pairingFile, logPath: logPath)
+    public static func start(pairingFile: String) throws {
+        try Muxer.start(pairingFile: pairingFile)
     }
 
     public static func retargetUsbmuxdAddr() {
