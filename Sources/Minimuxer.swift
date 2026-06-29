@@ -34,6 +34,30 @@ public enum RestartStatus {
 }
 
 public struct Minimuxer {
+    private actor MutableState {
+        var continuation: CheckedContinuation<Void, Error>?
+        var docsPath: String?
+        
+        func setDocsPath(_ path: String) {
+            self.docsPath = path
+        }
+        
+        func registerContinuation(_ co: CheckedContinuation<Void, Error>) throws {
+            if continuation != nil {
+                throw MinimuxerError.RestartAlreadyInProgressError
+            }
+            self.continuation = co
+        }
+        
+        func consumeContinuation() -> CheckedContinuation<Void, Error>? {
+            let co = continuation
+            continuation = nil
+            return co
+        }
+    }
+    
+    private static let state = MutableState()
+
     public static func describeError(_ error: MinimuxerError) -> String {
         return error.description
     }
@@ -116,10 +140,13 @@ public struct Minimuxer {
             debugLog("[minimuxer] ERROR: minimuxer has not started!")
             return nil
         }
-        guard case .success(let isReady) = ready(), isReady else {
-            debugLog("[minimuxer] ERROR: minimuxer is not ready!")
-            return nil
-        }
+        // mahee96: minimuxer ready check can be invoked by caller,
+        //          and we don't enforce it here coz sometime caller can determine best timings
+        //          ex: cellular based refreshing etc.
+//        guard case .success(let isReady) = ready(), isReady else {
+//            debugLog("[minimuxer] ERROR: minimuxer is not ready!")
+//            return nil
+//        }
         let udid: String?
         if Muxer.isrppairing {
             udid = RustIdevice.fetchUDID()
@@ -182,61 +209,48 @@ public struct Minimuxer {
     }
 
     public static var onBackgroundError: ((Error) async -> Void)?
-    internal static var docsPath: String?
     
-    private static var continuation: CheckedContinuation<Void, Error>?
-    private static let stateLock = NSLock()
-
-    public static func startAutoMounter(docsPath: String) {
-        self.docsPath = docsPath
-        Mounter.startAutoMounter(docsPath: docsPath)
+    public static func startAutoMounter(docsPath: String) async {
+        await state.setDocsPath(docsPath)
+        await Mounter.startAutoMounter(docsPath: docsPath)
     }
 
     public static func restart() async throws {
-        stateLock.lock()
-        guard continuation == nil else {
-            stateLock.unlock()
-            verboseLog("[minimuxer] Restart already in progress, ignoring request.")
-            throw MinimuxerError.RestartAlreadyInProgressError
-        }
-        stateLock.unlock()
-
         verboseLog("[minimuxer] Restarting services...")
         
         try await withCheckedThrowingContinuation { (co: CheckedContinuation<Void, Error>) in
-            stateLock.lock()
-            
-            // 1. Reset states
-            Mounter.dmgMounted = false
-            Heartbeat.stop()
-            
-            // 2. Set the active continuation
-            self.continuation = co
-            stateLock.unlock()
-
-            // 3. Restart mounter
-            if let docsPath = docsPath {
-                Mounter.startAutoMounter(docsPath: docsPath)
+            Task {
+                do {
+                    try await state.registerContinuation(co)
+                    
+                    // 1. Reset states
+                    Mounter.dmgMounted = false
+                    await Heartbeat.stop()
+                    
+                    // 2. Restart mounter
+                    if let docsPath = await state.docsPath {
+                        await Mounter.startAutoMounter(docsPath: docsPath)
+                    }
+                    
+                    // 3. Force NetworkObserver to scan and restart heartbeat
+                    NetworkObserver.shared.refreshEndpoint()
+                } catch {
+                    co.resume(throwing: error)
+                }
             }
-
-            // 4. Force NetworkObserver to scan and restart heartbeat
-            NetworkObserver.shared.refreshEndpoint()
         }
     }
 
     public static func checkAndNotify(_ status: RestartStatus) async {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        
         switch status {
             case .ready:
-                if let co = continuation, case .success(let isReady) = ready(), isReady {
-                    continuation = nil
-                    co.resume(returning: ())
+                if case .success(let isReady) = ready(), isReady {
+                    if let co = await state.consumeContinuation() {
+                        co.resume(returning: ())
+                    }
                 }
             case .failed(let component, let error):
-                if let co = continuation {
-                    continuation = nil
+                if let co = await state.consumeContinuation() {
                     co.resume(throwing: error)
                 } else {
                     let wrappedError = MinimuxerBackgroundError(component: component, error: error)

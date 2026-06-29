@@ -10,10 +10,9 @@ import Foundation
 import RustBridge
 import ZIPFoundation
 
-
 public protocol MounterProvider: AnyObject {
     var dmgMounted:Bool { get set }
-    func startAutoMounter(docsPath: String);
+    func startAutoMounter(docsPath: String) async;
 }
 
 public class Mounter {
@@ -31,9 +30,12 @@ public class Mounter {
         }
         return provider!
     }
-    public static func startAutoMounter(docsPath: String) {
-        getProvider().startAutoMounter(docsPath: docsPath)
+    public static func startAutoMounter(docsPath: String) async {
+        await getProvider().startAutoMounter(docsPath: docsPath)
     }
+
+
+
     public static var dmgMounted: Bool {
         get { getProvider().dmgMounted }
         set { getProvider().dmgMounted = newValue }
@@ -42,81 +44,78 @@ public class Mounter {
 
 public class LockDownMounter: MounterProvider {
     public var dmgMounted = false
-    private var threadAlive = false
-    private let lock = NSLock()
+    private let state = MutableState()
 
-    public func startAutoMounter(docsPath: String) {
-        lock.lock()
-        guard !threadAlive else {
-            lock.unlock()
+    public func startAutoMounter(docsPath: String) async {
+        guard await state.tryStart() else {
             return
         }
-        threadAlive = true
-        lock.unlock()
 
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
         let dmgDocsPath = "\(path)/DMG"
 
-        verboseLog("[minimuxer] mount-thread: Starting mount thread...")
-        Task.detached(priority: .userInitiated) {
-            defer {
-                self.lock.withLock{
-                    self.threadAlive = false
+        verboseLog("[minimuxer] mount-task: Starting mount task...")
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            verboseLog("[minimuxer] mount-task: started")
+            
+            await self.mountLoop(dmgDocsPath: dmgDocsPath)
+            
+            await self.state.stop()
+            verboseLog("[minimuxer] mount-task: stopped")
+        }
+    }
+
+    private func mountLoop(dmgDocsPath: String) async {
+        while !Muxer.usbmuxdReady {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let ts = ISO8601DateFormatter().string(from: Date())
+            verboseLog("[\(ts)] [minimuxer] mount-task: Waiting for usbmuxd to be ready...")
+        }
+        verboseLog("[minimuxer] mount-task: usbmuxd is ready")
+
+        try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
+
+        while !self.dmgMounted {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            do {
+                let device = try Device.getFirstDevice()
+                let lockdown: RustLockdown
+                switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
+                    case .success(let ld): lockdown = ld
+                    case .error(let err):
+                          if err.contains("InvalidConf") {
+                              debugLog("[minimuxer] mounter-task: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please redo-pairing for your device.")
+                              debugLog("[minimuxer] mounter-task: exiting due to invalid pairing")
+                              await Minimuxer.checkAndNotify(.failed(.mounter, MinimuxerError.PairingFile))
+                              return
+                      } else {
+                        debugLog("[minimuxer] mount-task: WARN: Could not connect to lockdown for mounter: \(err)")
+                    }
+                    continue
                 }
-                verboseLog("[minimuxer] mount-thread: stopped")
-            }
-            verboseLog("[minimuxer] mount-thread: started")
-
-            while !Muxer.usbmuxdReady {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                let ts = ISO8601DateFormatter().string(from: Date())
-                verboseLog("[\(ts)] [minimuxer] mount-thread: Waiting for usbmuxd to be ready...")
-            }
-            verboseLog("[minimuxer] mount-thread: usbmuxd is ready")
-
-            try? FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
-
-            while !self.dmgMounted {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                do {
-                    let device = try Device.getFirstDevice()
-                    let lockdown: RustLockdown
-                    switch RustLockdown.connect(device: device.internalInstance, label: "minimuxer") {
-                        case .success(let ld): lockdown = ld
-                        case .error(let err):
-                              if err.contains("InvalidConf") {
-                                  debugLog("[minimuxer] mounter-thread: ERROR: Invalid pairing file — the device rejected the SSL handshake. Please redo-pairing for your device.")
-                                  debugLog("[minimuxer] mounter-thread: exiting due to invalid pairing")
-                                  await Minimuxer.checkAndNotify(.failed(.mounter, MinimuxerError.PairingFile))
-                                  return
-                          } else {
-                            debugLog("[minimuxer] mount-thread: WARN: Could not connect to lockdown for mounter: \(err)")
-                        }
-                        continue
-                    }
-                    guard let versionStr = lockdown.getValue(key: "ProductVersion") else {
-                        debugLog("[minimuxer] mount-thread: WARN: Could not get device version for mounter")
-                        continue
-                    }
-
-                    let major = Int(versionStr.split(separator: ".").first ?? "0") ?? 0
-                    if major < 17 {
-                        try await self.handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
-                    } else {
-                        try await self.handlePost17Mount(dmgDocsPath: dmgDocsPath)
-                    }
-                } catch let error as MinimuxerError {
-                    if error == .NoDevice {
-                        continue
-                    }
-                    debugLog("[minimuxer] mount-thread: ERROR: Mount failed with .NoDevice error: \(error)")
-                    await Minimuxer.checkAndNotify(.failed(.mounter, error))
-                    return
-                } catch {
-                    debugLog("[minimuxer] mount-thread: ERROR: Mount failed with unknown error: \(error)")
-                    await Minimuxer.checkAndNotify(.failed(.mounter, error))
-                    return
+                guard let versionStr = lockdown.getValue(key: "ProductVersion") else {
+                    debugLog("[minimuxer] mount-task: WARN: Could not get device version for mounter")
+                    continue
                 }
+
+                let major = Int(versionStr.split(separator: ".").first ?? "0") ?? 0
+                if major < 17 {
+                    try await self.handlePre17Mount(device: device, iosVersion: versionStr, dmgDocsPath: dmgDocsPath)
+                } else {
+                    try await self.handlePost17Mount(dmgDocsPath: dmgDocsPath)
+                }
+            } catch let error as MinimuxerError {
+                if error == .NoDevice {
+                    continue
+                }
+                debugLog("[minimuxer] mount-task: ERROR: Mount failed with .NoDevice error: \(error)")
+                await Minimuxer.checkAndNotify(.failed(.mounter, error))
+                return
+            } catch {
+                debugLog("[minimuxer] mount-task: ERROR: Mount failed with unknown error: \(error)")
+                await Minimuxer.checkAndNotify(.failed(.mounter, error))
+                return
             }
         }
     }
@@ -280,56 +279,66 @@ public class LockDownMounter: MounterProvider {
 
 public class RPMounter: MounterProvider {
     public var dmgMounted: Bool = false
-    private var threadAlive = false
-    private let lock = NSLock()
+    private let state = MutableState()
 
-    public func startAutoMounter(docsPath: String) {
-        lock.lock()
-        guard !threadAlive, !dmgMounted else {
-            lock.unlock()
+    public func startAutoMounter(docsPath: String) async {
+        guard !dmgMounted, await state.tryStart() else {
             return
         }
-        threadAlive = true
-        lock.unlock()
 
         let path = docsPath.hasPrefix("file://") ? String(docsPath.dropFirst(7)) : docsPath
         let dmgDocsPath = (path.hasSuffix("/") ? String(path.dropLast()) : path) + "/DMG"
 
+        verboseLog("[minimuxer] mount-task: Starting mount task...")
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            verboseLog("[minimuxer] mount-task: started")
+            
+            await self.mountLoop(dmgDocsPath: dmgDocsPath)
+            
+            await self.state.stop()
+            verboseLog("[minimuxer] mount-task: stopped")
+        }
+    }
+
+    private func mountLoop(dmgDocsPath: String) async {
         do {
             try FileManager.default.createDirectory(atPath: dmgDocsPath, withIntermediateDirectories: true)
             let (imageData, trustcacheData, manifestData) = try LockDownMounter.loadPost17Image(dmgDocsPath: dmgDocsPath)
-            verboseLog("[minimuxer] mount-thread: Starting mount thread...")
 
-            Task.detached(priority: .userInitiated) {
-                defer {
-                    self.lock.withLock {
-                        self.threadAlive = false
-                    }
-                    verboseLog("[minimuxer] mount-thread: stopped")
+            while !self.dmgMounted {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard (try? DeviceEndpoint.shared.ip()) != nil else {
+                    continue
                 }
-                verboseLog("[minimuxer] mount-thread: started")
-
-                while !self.dmgMounted {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    guard (try? DeviceEndpoint.shared.ip()) != nil else {
-                        continue
-                    }
-                    do {
-                        try RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
-                        verboseLog("[minimuxer] DDI mounted successfully")
-                        self.dmgMounted = true
-                    } catch {
-                        verboseLog("[minimuxer] ERROR: Failed to mount DDI: \(error)")
-                    }
+                do {
+                    try RustIdevice.mountPersonalizedDDI(image: imageData, trustcache: trustcacheData, manifest: manifestData)
+                    verboseLog("[minimuxer] DDI mounted successfully")
+                    self.dmgMounted = true
+                } catch {
+                    verboseLog("[minimuxer] ERROR: Failed to mount DDI: \(error)")
                 }
             }
         } catch {
             debugLog("[minimuxer] ERROR: \(error)")
-            self.lock.withLock {
-                self.threadAlive = false
-            }
         }
-
     }
+}
 
+
+
+private actor MutableState {
+    private var taskActive = false
+    
+    func tryStart() -> Bool {
+        if taskActive {
+            return false
+        }
+        taskActive = true
+        return true
+    }
+    
+    func stop() {
+        taskActive = false
+    }
 }

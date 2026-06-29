@@ -21,24 +21,23 @@ public final class NetworkObserver {
 
     @discardableResult
     public func start() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.withLock{
+            guard !started else {
+                verboseLog("[minimuxer] [net] monitor already started")
+                return false
+            }
 
-        guard !started else {
-            verboseLog("[minimuxer] [net] monitor already started")
-            return false
+            monitor.pathUpdateHandler = { [weak self] path in
+                verboseLog("[minimuxer] [net] path changed, status: \(path.status)")
+                guard path.status == .satisfied else { return }
+                self?.refreshEndpoint()
+            }
+
+            monitor.start(queue: queue)
+            started = true
+            verboseLog("[minimuxer] [net] monitor started")
+            return true
         }
-
-        monitor.pathUpdateHandler = { [weak self] path in
-            verboseLog("[minimuxer] [net] path changed, status: \(path.status)")
-            guard path.status == .satisfied else { return }
-            self?.refreshEndpoint()
-        }
-
-        monitor.start(queue: queue)
-        started = true
-        verboseLog("[minimuxer] [net] monitor started")
-        return true
     }
     
     public func refreshEndpoint() {
@@ -54,14 +53,18 @@ public final class NetworkObserver {
                 DeviceEndpoint.shared.update(peer)
                 Muxer.notifyDeviceAttached(deviceIP: peer)
                 if !Muxer.isrppairing {
-                    Heartbeat.start()
+                    Task { 
+                        await Heartbeat.start()
+                    }
                 }
             } else {
                 verboseLog("[minimuxer] [net] peer not available for \(info.name)")
                 DeviceEndpoint.shared.clear()
                 Muxer.notifyDeviceDetached()
                 if !Muxer.isrppairing {
-                    Heartbeat.stop()
+                    Task { 
+                        await Heartbeat.stop()
+                    }
                 }
             }
         } else {
@@ -69,25 +72,25 @@ public final class NetworkObserver {
             DeviceEndpoint.shared.clear()
             Muxer.notifyDeviceDetached()
             if !Muxer.isrppairing {
-                Heartbeat.stop()
+                Task {
+                    await Heartbeat.stop()
+                }
             }
         }
     }
     
     @discardableResult
     public func stop() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard started else {
-            verboseLog("[minimuxer] [net] monitor already stopped")
-            return false
+        lock.withLock{
+            if !started {
+                verboseLog("[minimuxer] [net] monitor already stopped")
+                return false
+            }
+            monitor.cancel()
+            started = false
+            verboseLog("[minimuxer] [net] monitor stopped")
+            return true
         }
-
-        monitor.cancel()
-        started = false
-        verboseLog("[minimuxer] [net] monitor stopped")
-        return true
     }
     
     var isWifiSatisfied: Bool {
