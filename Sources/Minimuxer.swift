@@ -73,7 +73,7 @@ public struct Minimuxer {
             deviceIP = try DeviceEndpoint.shared.ip()
         } catch {
             debugLog("[minimuxer] minimuxer not ready: device endpoint not initialized")
-            return .failure(MinimuxerError.connectionError)
+            return .failure(MinimuxerError.NoVPN)
         }
         
         let deviceConnection = testDeviceConnection(ifaddr: deviceIP)
