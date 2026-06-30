@@ -26,6 +26,7 @@ public class Muxer {
     private static var cachedPairingXml: Data?
 
     // Stable device state
+    private static let stateLock = NSLock()
     private static var currentDeviceIP: String?
     private static var currentEvent: String?
 
@@ -226,16 +227,23 @@ public class Muxer {
 
         switch messageType {
             case "ListDevices":
-                guard let deviceIP = currentDeviceIP,
+                stateLock.lock()
+                let deviceIP = currentDeviceIP
+                stateLock.unlock()
+                guard let deviceIP = deviceIP,
                       let payload = try? buildPayload(deviceIP: deviceIP) else {
                     return ["DeviceList": []]
                 }
                 return ["DeviceList": [payload]]
                 
             case "Listen":
-                if let deviceIP = currentDeviceIP{
+                stateLock.lock()
+                let deviceIP = currentDeviceIP
+                let event = currentEvent
+                stateLock.unlock()
+                if let deviceIP = deviceIP {
                      Task.detached {
-                         if let payload = try? buildPayload(deviceIP: deviceIP, event: currentEvent){
+                         if let payload = try? buildPayload(deviceIP: deviceIP, event: event){
                              let pkt = RawPacket(plist: payload, version: 1, message: 8, tag: 0)
                              let data = pkt.data
                              data.withUnsafeBytes { _ = send(fd, $0.baseAddress!, data.count, 0) }
@@ -259,10 +267,12 @@ public class Muxer {
     
     
     public static func notifyDeviceAttached(deviceIP: String){
+        stateLock.lock(); defer { stateLock.unlock() }
         currentDeviceIP = deviceIP
         currentEvent = DEVICE_ATTACH
     }
     public static func notifyDeviceDetached(){
+        stateLock.lock(); defer { stateLock.unlock() }
         currentDeviceIP = nil
         currentEvent = DEVICE_DETACH
     }

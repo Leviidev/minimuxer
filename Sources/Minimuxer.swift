@@ -120,6 +120,9 @@ public struct Minimuxer {
         guard fd >= 0 else { return false }
         defer { close(fd) }
 
+        var nosig = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, socklen_t(MemoryLayout<Int32>.size))
+
         let flags = fcntl(fd, F_GETFL, 0)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
 
