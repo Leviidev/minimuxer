@@ -134,7 +134,12 @@ public struct Minimuxer {
 
         var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         let result = poll(&pfd, 1, 100)
-        return result > 0 && (pfd.revents & Int16(POLLOUT)) != 0
+        guard result > 0 && (pfd.revents & Int16(POLLOUT)) != 0 else { return false }
+        
+        var err: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
+        return err == 0
     }
 
     public static func yeetAppAfc(bundleId: String, ipaBytes: Data) throws {

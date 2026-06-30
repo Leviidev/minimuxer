@@ -177,11 +177,12 @@ public class Muxer {
             guard let packet = RawPacket(data: data) else { return }
 
             do {
-                let response = try handlePacket(packet, fd: fd)
-                let responsePacket = RawPacket(plist: response, version: 1, message: 8, tag: packet.tag)
-                let responseData = responsePacket.data
-                responseData.withUnsafeBytes { ptr in
-                    _ = send(fd, ptr.baseAddress!, responseData.count, 0)
+                if let response = try handlePacket(packet, fd: fd) {
+                    let responsePacket = RawPacket(plist: response, version: 1, message: 8, tag: packet.tag)
+                    let responseData = responsePacket.data
+                    responseData.withUnsafeBytes { ptr in
+                        _ = send(fd, ptr.baseAddress!, responseData.count, 0)
+                    }
                 }
             } catch {}
         }
@@ -218,7 +219,7 @@ public class Muxer {
 
     // Responds to the subset of usbmuxd protocol messages that
     // libimobiledevice actually needs from us:
-    private static func handlePacket(_ packet: RawPacket, fd: Int32) throws -> [String: Any] {
+    private static func handlePacket(_ packet: RawPacket, fd: Int32) throws -> [String: Any]? {
         guard let messageType = packet.plist["MessageType"] as? String else {
             throw MinimuxerError.NoConnection
         }
@@ -241,16 +242,20 @@ public class Muxer {
                 let deviceIP = currentDeviceIP
                 let event = currentEvent
                 stateLock.unlock()
+                
+                let resultPlist: [String: Any] = ["MessageType": "Result", "Number": 0]
+                let resultPkt = RawPacket(plist: resultPlist, version: 1, message: 8, tag: packet.tag)
+                let resultData = resultPkt.data
+                resultData.withUnsafeBytes { _ = send(fd, $0.baseAddress!, resultData.count, 0) }
+                
                 if let deviceIP = deviceIP {
-                     Task.detached {
-                         if let payload = try? buildPayload(deviceIP: deviceIP, event: event){
-                             let pkt = RawPacket(plist: payload, version: 1, message: 8, tag: 0)
-                             let data = pkt.data
-                             data.withUnsafeBytes { _ = send(fd, $0.baseAddress!, data.count, 0) }
-                         }
-                     }
+                    if let payload = try? buildPayload(deviceIP: deviceIP, event: event ?? DEVICE_ATTACH) {
+                        let pkt = RawPacket(plist: payload, version: 1, message: 8, tag: 0)
+                        let data = pkt.data
+                        data.withUnsafeBytes { _ = send(fd, $0.baseAddress!, data.count, 0) }
+                    }
                 }
-                return ["MessageType": "Result", "Number": 0]
+                return nil
                 
             case "ReadBUID":
                 return ["BUID": "00000000-0000-0000-0000-000000000000"]
