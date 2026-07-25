@@ -75,7 +75,7 @@ public class LockDownInstall: InstallProvider {
     
     private func mkdirP(_ path: String, afc: RustAfc) {
         var current = ""
-        for part in path.split(separator: "/") {
+        for part in path.split(separator: "/") where part != "." {
             current += "/\(part)"
             _ = afc.mkdir(path: current)
         }
