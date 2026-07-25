@@ -37,6 +37,9 @@ public struct NetInfo: Hashable, CustomStringConvertible {
     public let name: String
     public let hostIP: String
     public let maskIP: String
+    /// The kernel-provided peer/destination IP for point-to-point interfaces (utun).
+    /// This is read from `ifa_dstaddr` and is the most reliable way to find the device IP.
+    public let kernelDstIP: String?
 
     fileprivate let host: UInt32
     fileprivate let mask: UInt32
@@ -57,6 +60,17 @@ public struct NetInfo: Hashable, CustomStringConvertible {
         self.mask = maskU
         self.hostIP = hostStr
         self.maskIP = maskStr
+
+        // For point-to-point interfaces (utun/VPN), ifa_dstaddr is the remote peer IP.
+        // This is the most reliable way to find the device IP — no subnet math needed.
+        if var dst = ifa.ifa_dstaddr?.pointee,
+           let dstU32 = sockaddrIPv4(&dst),
+           let dstStr = ipv4String(dstU32),
+           dstStr != hostStr {
+            self.kernelDstIP = dstStr
+        } else {
+            self.kernelDstIP = nil
+        }
     }
     
     var peerIP: String? {
@@ -67,7 +81,7 @@ public struct NetInfo: Hashable, CustomStringConvertible {
     var broadcast: UInt32 { networkBase | ~mask }
 
     public var description: String {
-        "\(name) | ip=\(hostIP) mask=\(maskIP)"
+        "\(name) | ip=\(hostIP) mask=\(maskIP) dst=\(kernelDstIP ?? "nil")"
     }
     
 }
@@ -177,30 +191,29 @@ final class IfaceScanner {
     
     
     public func getPeer(for iface: NetInfo) -> String? {
-        // 1. Try the user-configured override IP first
+        // 1. Use the kernel-provided peer IP from ifa_dstaddr (most reliable for utun interfaces).
+        //    Point-to-point VPN tunnels always have this set to the remote/device IP.
+        if let dst = iface.kernelDstIP {
+            let reachable = Minimuxer.testDeviceConnection(ifaddr: dst)
+            if reachable {
+                print("[minimuxer] [iface] kernel dst peer reachable at:", dst)
+                return dst
+            }
+            print("[minimuxer] [iface] kernel dst peer NOT reachable at:", dst, "- trying override")
+        }
+
+        // 2. Fall back to user-configured override IP.
         if let override = cachedOverrideFakeIP, !override.isEmpty {
             let reachable = Minimuxer.testDeviceConnection(ifaddr: override)
             if reachable {
                 print("[minimuxer] [iface] override peer reachable at:", override)
                 return override
-            } else {
-                print("[minimuxer] [iface] override peer NOT reachable at:", override, "- falling through to subnet peer")
             }
+            print("[minimuxer] [iface] override peer NOT reachable at:", override)
         } else {
-            print("[minimuxer] [iface] no override peer configured, using subnet peer")
+            print("[minimuxer] [iface] no override peer configured")
         }
 
-        // 2. Derive the peer IP from the VPN subnet (broadcast address - 1).
-        //    For LocalDevVPN (10.7.0.x/24), host=10.7.0.2 → peer=10.7.0.1.
-        //    For IKEv2 tunnels (192.168.x.x/24), this gives the gateway IP.
-        let peerAddr = iface.broadcast - 1
-        guard let peerStr = ipv4String(peerAddr) else { return nil }
-        let reachable = Minimuxer.testDeviceConnection(ifaddr: peerStr)
-        if reachable {
-            print("[minimuxer] [iface] subnet peer reachable at:", peerStr)
-            return peerStr
-        }
-        print("[minimuxer] [iface] subnet peer NOT reachable at:", peerStr)
         return nil
     }
 
