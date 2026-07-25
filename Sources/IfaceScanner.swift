@@ -177,17 +177,30 @@ final class IfaceScanner {
     
     
     public func getPeer(for iface: NetInfo) -> String? {
-        if let cachedDeviceIP = cachedOverrideFakeIP {
-            let reachable = Minimuxer.testDeviceConnection(ifaddr: cachedDeviceIP)
+        // 1. Try the user-configured override IP first
+        if let override = cachedOverrideFakeIP, !override.isEmpty {
+            let reachable = Minimuxer.testDeviceConnection(ifaddr: override)
             if reachable {
-                print("[minimuxer] [iface] override peer reachable at:", cachedDeviceIP)
-                return cachedDeviceIP
+                print("[minimuxer] [iface] override peer reachable at:", override)
+                return override
             } else {
-                print("[minimuxer] [iface] override peer NOT reachable at:", cachedDeviceIP)
-                return nil
+                print("[minimuxer] [iface] override peer NOT reachable at:", override, "- falling through to subnet peer")
             }
+        } else {
+            print("[minimuxer] [iface] no override peer configured, using subnet peer")
         }
-        print("[minimuxer] [iface] no override peer configured")
+
+        // 2. Derive the peer IP from the VPN subnet (broadcast address - 1).
+        //    For LocalDevVPN (10.7.0.x/24), host=10.7.0.2 → peer=10.7.0.1.
+        //    For IKEv2 tunnels (192.168.x.x/24), this gives the gateway IP.
+        let peerAddr = iface.broadcast - 1
+        guard let peerStr = ipv4String(peerAddr) else { return nil }
+        let reachable = Minimuxer.testDeviceConnection(ifaddr: peerStr)
+        if reachable {
+            print("[minimuxer] [iface] subnet peer reachable at:", peerStr)
+            return peerStr
+        }
+        print("[minimuxer] [iface] subnet peer NOT reachable at:", peerStr)
         return nil
     }
 
